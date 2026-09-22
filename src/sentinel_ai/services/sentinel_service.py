@@ -23,7 +23,7 @@ from sentinel_ai.domain import (
     SimulationRun,
 )
 from sentinel_ai.features import build_feature_vector
-from sentinel_ai.graph import SecurityGraph, analyze_graph, build_security_graph
+from sentinel_ai.graph import SecurityGraph, analyze_graph, build_security_graph, select_subgraph
 from sentinel_ai.models import IsolationForestDetector
 from sentinel_ai.storage import SentinelDatabase
 
@@ -417,47 +417,12 @@ class SentinelService:
         max_nodes: int | None = None,
     ) -> dict:
         graph = self.build_graph()
-        nodes = list(graph.nodes.values())
-        edges = list(graph.edges)
-        findings = list(graph.findings)
-
-        if node_type:
-            nodes = [n for n in nodes if n.node_type == node_type]
-            node_ids = {n.node_id for n in nodes}
-            edges = [e for e in edges if e.source_id in node_ids or e.target_id in node_ids]
-
-        if severity:
-            findings = [f for f in findings if f.severity == severity]
-
-        if employee_id:
-            emp_node_id = f"employee:{employee_id}"
-            nodes = [n for n in nodes if n.node_id == emp_node_id or emp_node_id in [e.source_id for e in edges if e.target_id == n.node_id] or emp_node_id in [e.target_id for e in edges if e.source_id == n.node_id]]
-            node_ids = {n.node_id for n in nodes}
-            edges = [e for e in edges if e.source_id in node_ids and e.target_id in node_ids]
-            findings = [f for f in findings if emp_node_id in f.entities]
-
-        if attack_run_id:
-            run_node_id = f"attack_run:{attack_run_id}"
-            run_edges = [e for e in edges if e.source_id == run_node_id or e.target_id == run_node_id]
-            node_ids = {run_node_id}
-            for e in run_edges:
-                node_ids.add(e.source_id)
-                node_ids.add(e.target_id)
-            nodes = [n for n in nodes if n.node_id in node_ids]
-            edges = [e for e in edges if e.source_id in node_ids and e.target_id in node_ids]
-            findings = [f for f in findings if run_node_id in f.entities or any(eid in f.supporting_events for eid in [e.metadata.get("event_id") for e in edges if e.metadata.get("event_id")])]
-
-        if max_nodes and len(nodes) > max_nodes:
-            nodes.sort(key=lambda n: (0 if n.node_type != "event" else 1, n.node_id))
-            nodes = nodes[:max_nodes]
-
-        # Strict safety check: never return an edge whose source or target node is missing
-        node_ids = {n.node_id for n in nodes}
-        edges = [e for e in edges if e.source_id in node_ids and e.target_id in node_ids]
-
-        return {
-            "nodes": nodes,
-            "edges": edges,
-            "findings": findings,
-        }
+        return select_subgraph(
+            graph=graph,
+            max_nodes=max_nodes,
+            node_type=node_type,
+            severity=severity,
+            employee_id=employee_id,
+            attack_run_id=attack_run_id,
+        )
 

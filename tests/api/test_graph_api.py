@@ -77,8 +77,47 @@ def test_graph_data_endpoint(client):
     assert "edges" in data
     assert "findings" in data
     assert len(data["nodes"]) <= 50
-    if data["nodes"]:
-        node = data["nodes"][0]
-        assert "nodeId" in node
-        assert "nodeType" in node
+    assert len(data["nodes"]) > 0
+    # Bounded graph must retain meaningful edges, not be reduced to arbitrary disconnected nodes
+    assert len(data["edges"]) > 0
+    node_ids = {n["nodeId"] for n in data["nodes"]}
+    # Edge integrity: every source and target exists in nodes
+    for edge in data["edges"]:
+        assert edge["sourceId"] in node_ids, f"Dangling edge source: {edge['sourceId']}"
+        assert edge["targetId"] in node_ids, f"Dangling edge target: {edge['targetId']}"
 
+    # Findings must be scoped to returned graph
+    for finding in data["findings"]:
+        assert any(e in node_ids for e in finding["entities"])
+
+
+def test_graph_data_employee_filter_api(client):
+    response = client.get("/api/graph/data?employeeId=EMP-001&maxNodes=30")
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data["nodes"]) <= 30
+    assert len(data["nodes"]) > 0
+    # Ensure no unrelated employees are mixed in
+    for node in data["nodes"]:
+        if node["nodeType"] == "employee":
+            assert node["nodeId"] == "employee:EMP-001"
+
+
+def test_graph_data_attack_run_filter_api(client):
+    # Get a simulation ID if available
+    overview = client.get("/api/graph/overview").json()
+    attack_count = overview.get("entityCounts", {}).get("attack_run", 0)
+    if attack_count > 0:
+        # Fetch data with attackRunId
+        full_data = client.get("/api/graph/data?maxNodes=100").json()
+        attack_node = next((n for n in full_data["nodes"] if n["nodeType"] == "attack_run"), None)
+        if attack_node:
+            sim_id = attack_node["nodeId"].replace("attack_run:", "")
+            res = client.get(f"/api/graph/data?attackRunId={sim_id}&maxNodes=20")
+            assert res.status_code == 200
+            run_data = res.json()
+            assert any(n["nodeId"] == attack_node["nodeId"] for n in run_data["nodes"])
+            run_node_ids = {n["nodeId"] for n in run_data["nodes"]}
+            for edge in run_data["edges"]:
+                assert edge["sourceId"] in run_node_ids
+                assert edge["targetId"] in run_node_ids

@@ -3,6 +3,7 @@ from dataclasses import replace
 from sentinel_ai.graph.models import GraphNode, GraphEdge, GraphFinding, SecurityGraph
 from sentinel_ai.graph.builder import build_security_graph
 from sentinel_ai.graph.analyzer import analyze_graph
+from sentinel_ai.graph.subgraph import select_subgraph
 
 class DummyConfig:
     GRAPH_SHARED_DEVICE_MIN_EMPLOYEES = 2
@@ -155,3 +156,93 @@ def test_findings_require_evidence():
     f = GraphFinding("T", "high", ("1",), ("E1",), (), "R", "E")
     assert len(f.supporting_events) > 0
 
+
+def test_select_subgraph_empty_graph():
+    empty_graph = SecurityGraph()
+    res = select_subgraph(empty_graph, max_nodes=50)
+    assert res["nodes"] == []
+    assert res["edges"] == []
+    assert res["findings"] == []
+
+
+def test_select_subgraph_max_nodes_bound(employee, event_factory):
+    events = [event_factory(event_id=f"EVT-{i}", employee_id="EMP-TEST", device_id=f"DEV-{i}") for i in range(20)]
+    graph = build_security_graph([employee], events, [], [])
+    res = select_subgraph(graph, max_nodes=10)
+    assert len(res["nodes"]) <= 10
+    assert len(res["nodes"]) > 0
+
+
+def test_select_subgraph_edge_integrity(employee, event_factory):
+    events = [event_factory(event_id=f"EVT-{i}", employee_id="EMP-TEST", device_id=f"DEV-{i}") for i in range(15)]
+    graph = build_security_graph([employee], events, [], [])
+    res = select_subgraph(graph, max_nodes=8)
+    node_ids = {n.node_id for n in res["nodes"]}
+    for edge in res["edges"]:
+        assert edge.source_id in node_ids, f"Dangling edge source: {edge.source_id}"
+        assert edge.target_id in node_ids, f"Dangling edge target: {edge.target_id}"
+
+
+def test_select_subgraph_preserves_connected_relationships(employee, event_factory):
+    e1 = event_factory(event_id="EVT-CONN-1", employee_id=employee.employee_id, device_id="D-MAIN", ip_address="192.168.1.50")
+    graph = build_security_graph([employee], [e1], [{"event_id": "EVT-CONN-1", "risk_level": "High"}], [])
+    res = select_subgraph(graph, max_nodes=10)
+    edge_types = {e.edge_type for e in res["edges"]}
+    # Verify meaningful relationships between employee, event, device, and IP are preserved
+    assert "GENERATED" in edge_types
+    assert "USED_DEVICE" in edge_types or "USES_DEVICE" in edge_types
+    assert "CONNECTED_FROM" in edge_types or "CONNECTS_FROM" in edge_types
+
+
+def test_select_subgraph_findings_scoped(employee, event_factory):
+    e1 = event_factory(event_id="EVT-1", employee_id="EMP-1", device_id="DEV-SHARED")
+    e2 = event_factory(event_id="EVT-2", employee_id="EMP-2", device_id="DEV-SHARED")
+    detection_rows = [
+        {"event_id": "EVT-1", "final_risk_score": 80, "risk_level": "High"},
+        {"event_id": "EVT-2", "final_risk_score": 80, "risk_level": "High"},
+    ]
+    graph = build_security_graph([], [e1, e2], detection_rows, [])
+    graph.findings = analyze_graph(graph, [e1, e2], detection_rows, DummyConfig)
+
+    # Subgraph bounded
+    res = select_subgraph(graph, max_nodes=10)
+    node_ids = {n.node_id for n in res["nodes"]}
+    for f in res["findings"]:
+        # Finding must have at least one entity present
+        assert any(e in node_ids for e in f.entities)
+        # And evidence must not be completely absent
+        assert any(f"event:{e}" in node_ids for e in f.supporting_events) or sum(1 for e in f.entities if e in node_ids) >= 2
+
+
+def test_select_subgraph_employee_filter(employee, event_factory):
+    e1 = event_factory(event_id="EVT-1", employee_id="EMP-TEST", device_id="DEV-1")
+    e2 = event_factory(event_id="EVT-2", employee_id="EMP-OTHER", device_id="DEV-2")
+    other_emp = replace(employee, employee_id="EMP-OTHER", employee_name="Other Employee")
+    graph = build_security_graph([employee, other_emp], [e1, e2], [], [])
+
+    res = select_subgraph(graph, employee_id="EMP-TEST", max_nodes=20)
+    assert all(n.node_type != "employee" or n.node_id == "employee:EMP-TEST" for n in res["nodes"])
+    assert "employee:EMP-TEST" in {n.node_id for n in res["nodes"]}
+    assert "employee:EMP-OTHER" not in {n.node_id for n in res["nodes"]}
+
+
+def test_select_subgraph_attack_run_filter(employee, event_factory):
+    e1 = event_factory(event_id="EVT-ATTACK", employee_id="EMP-TEST", device_id="DEV-ATTACK")
+    sim_runs = [{"simulation_id": "SIM-999", "employee_id": "EMP-TEST", "scenario": "brute_force", "event_ids": ["EVT-ATTACK"]}]
+    graph = build_security_graph([employee], [e1], [], sim_runs)
+
+    res = select_subgraph(graph, attack_run_id="SIM-999", max_nodes=20)
+    node_ids = {n.node_id for n in res["nodes"]}
+    assert "attack_run:SIM-999" in node_ids
+    assert "event:EVT-ATTACK" in node_ids
+
+
+def test_select_subgraph_determinism(employee, event_factory):
+    events = [event_factory(event_id=f"EVT-{i}", employee_id="EMP-TEST", device_id=f"DEV-{i % 3}") for i in range(12)]
+    graph = build_security_graph([employee], events, [], [])
+
+    res1 = select_subgraph(graph, max_nodes=8)
+    res2 = select_subgraph(graph, max_nodes=8)
+
+    assert [n.node_id for n in res1["nodes"]] == [n.node_id for n in res2["nodes"]]
+    assert [(e.source_id, e.target_id, e.edge_type) for e in res1["edges"]] == [(e.source_id, e.target_id, e.edge_type) for e in res2["edges"]]
