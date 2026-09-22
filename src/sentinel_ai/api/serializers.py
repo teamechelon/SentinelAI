@@ -29,9 +29,15 @@ from sentinel_ai.api.schemas import (
     GraphNodeDto,
     GraphEdgeDto,
     GraphFindingDto,
+    MitreMappingDto,
+    MitreReportDto,
+    ThreatStoryDto,
+    ThreatTimelineEntryDto,
+    SequenceFindingDto,
 )
 from sentinel_ai.domain import BehaviouralAssessment, BehaviourProfile, PeerBehaviourProfile
 from sentinel_ai.graph.models import GraphEdge, GraphFinding, GraphNode
+from sentinel_ai.mitre.models import MitreMapping, MitreReport, ThreatStory, TimelineEntry
 
 
 def humanize(value: str) -> str:
@@ -99,6 +105,70 @@ def activity(row: dict[str, Any]) -> ActivityRecordDto:
         alert_id=str(row["alert_id"]) if row.get("alert_id") else None,
         alert_status=str(row["alert_status"]) if row.get("alert_status") else None,
         simulation_id=str(row["simulation_id"]) if row.get("simulation_id") else None,
+    )
+
+
+def threat_timeline_entry(item: TimelineEntry) -> ThreatTimelineEntryDto:
+    return ThreatTimelineEntryDto(
+        timestamp=item.timestamp,
+        event_id=item.event_id,
+        activity=item.activity,
+        observation=item.observation,
+        risk_level=item.risk_level,
+    )
+
+
+def mitre_mapping(item: MitreMapping) -> MitreMappingDto:
+    return MitreMappingDto(
+        technique_id=item.technique_id,
+        technique_name=item.technique_name,
+        tactic=item.tactic,
+        confidence=item.confidence,
+        observed_behaviour=item.observed_behaviour,
+        explanation=item.explanation,
+        supporting_event_ids=list(item.supporting_event_ids),
+        supporting_rule_names=list(item.supporting_rule_names),
+        supporting_sequence_findings=list(item.supporting_sequence_findings),
+        supporting_graph_findings=list(item.supporting_graph_findings),
+        evidence_count=item.evidence_count,
+    )
+
+
+def threat_story(item: ThreatStory) -> ThreatStoryDto:
+    return ThreatStoryDto(
+        title=item.title,
+        summary=item.summary,
+        employee_id=item.employee_id,
+        employee_name=item.employee_name,
+        risk_level=item.risk_level,
+        timeline=[threat_timeline_entry(entry) for entry in item.timeline],
+        key_evidence=list(item.key_evidence),
+        sequence_context=list(item.sequence_context),
+        graph_context=list(item.graph_context),
+        mapped_technique_ids=list(item.mapped_technique_ids),
+        investigation_focus=list(item.investigation_focus),
+    )
+
+
+def mitre_report(item: MitreReport, event_rows: dict[str, dict[str, Any]]) -> MitreReportDto:
+    return MitreReportDto(
+        subject_type=item.subject_type,
+        subject_id=item.subject_id,
+        confidence=item.confidence,
+        threat_story=threat_story(item.threat_story),
+        timeline=[threat_timeline_entry(entry) for entry in item.timeline],
+        mappings=[mitre_mapping(mapping) for mapping in item.mappings],
+        supporting_events=[activity(event_rows[event.event_id]) for event in item.supporting_events if event.event_id in event_rows],
+        sequence_evidence=[SequenceFindingDto(
+            code=finding.code,
+            title=finding.title,
+            severity=finding.severity,
+            status=finding.status,
+            event_ids=list(finding.event_ids),
+            window_minutes=finding.window_minutes,
+            evidence=list(finding.evidence),
+        ) for finding in item.sequence_evidence],
+        graph_evidence=[graph_finding(finding) for finding in item.graph_evidence],
     )
 
 

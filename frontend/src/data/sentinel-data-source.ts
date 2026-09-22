@@ -23,6 +23,9 @@ import type {
   GraphFinding,
   GraphData,
   GraphFilters,
+  MitreCatalog,
+  MitreOverview,
+  MitreReport,
 } from "@/domain/sentinel";
 
 export interface SentinelDataSource {
@@ -46,4 +49,9 @@ export interface SentinelDataSource {
   getGraphEventContext(eventId: string): Promise<GraphEventContext | null>;
   getGraphAttackRunContext(simulationId: string): Promise<GraphAttackRunContext | null>;
   getGraphFindings(filters?: { severity?: string; findingType?: string; entityType?: string; employeeId?: string }): Promise<PageResult<GraphFinding>>;
+  getMitreCatalog(): Promise<MitreCatalog>;
+  getMitreOverview(): Promise<MitreOverview>;
+  getMitreEvent(eventId: string): Promise<MitreReport | null>;
+  getMitreAttackRun(simulationId: string): Promise<MitreReport | null>;
+  getMitreAlert(alertId: string): Promise<MitreReport | null>;
 }

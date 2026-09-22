@@ -38,6 +38,10 @@ from sentinel_ai.api.schemas import (
     GraphAttackRunContextDto,
     GraphFindingsPageDto,
     GraphDataDto,
+    MitreCatalogDto,
+    MitreOverviewDto,
+    MitreReportDto,
+    MitreTechniqueDto,
 )
 
 from sentinel_ai.api.serializers import (
@@ -52,11 +56,13 @@ from sentinel_ai.api.serializers import (
     graph_node,
     graph_edge,
     graph_finding,
+    mitre_report,
 )
 from sentinel_ai.baselines import build_peer_profile, build_profiles, peer_group_key
 from sentinel_ai.demo import ATTACK_LAB_SCENARIOS
 from sentinel_ai.services import SentinelService
 from sentinel_ai.models import evaluate_existing_models, evaluate_quantum_kernel
+from sentinel_ai.mitre import ATTACK_SOURCE_URL, ATTACK_VERSION, catalog
 
 
 def _page_meta(page: int, page_size: int, total: int) -> PageMeta:
@@ -369,6 +375,62 @@ def create_app(database_path: str | Path | None = None) -> FastAPI:
     @app.get("/api/attack-lab/runs/{simulation_id}", response_model=AttackLabRunDto)
     def get_attack_lab_run(simulation_id: str, service: Service) -> AttackLabRunDto:
         return run_document(simulation_id, service)
+
+    def mitre_document(report, service: SentinelService) -> MitreReportDto:
+        event_rows = {str(row["event_id"]): row for row in service.event_rows()}
+        return mitre_report(report, event_rows)
+
+    @app.get("/api/mitre/catalog", response_model=MitreCatalogDto)
+    def mitre_catalog() -> MitreCatalogDto:
+        return MitreCatalogDto(
+            source_version=ATTACK_VERSION,
+            source_url=ATTACK_SOURCE_URL,
+            techniques=[MitreTechniqueDto(
+                technique_id=item.technique_id,
+                name=item.name,
+                tactics=list(item.tactics),
+                description=item.description,
+                source_version=item.source_version,
+                source_url=item.source_url,
+            ) for item in catalog()],
+        )
+
+    @app.get("/api/mitre/overview", response_model=MitreOverviewDto)
+    def mitre_overview(service: Service) -> MitreOverviewDto:
+        data = service.mitre_overview()
+        event_rows = {str(row["event_id"]): row for row in service.event_rows()}
+        return MitreOverviewDto(
+            source_version=str(data["source_version"]),
+            source_url=str(data["source_url"]),
+            catalog_technique_count=int(data["catalog_technique_count"]),
+            mapped_technique_count=int(data["mapped_technique_count"]),
+            story_count=int(data["story_count"]),
+            correlated_case_count=int(data["correlated_case_count"]),
+            technique_counts=dict(data["technique_counts"]),
+            recent_reports=[mitre_report(report, event_rows) for report in data["recent_reports"]],
+            affects_production_risk=bool(data["affects_production_risk"]),
+        )
+
+    @app.get("/api/mitre/events/{event_id}", response_model=MitreReportDto)
+    def mitre_event(event_id: str, service: Service) -> MitreReportDto:
+        report = service.mitre_event_report(event_id)
+        if report is None:
+            raise HTTPException(404, {"code": "event_not_found", "message": f"Unknown event: {event_id}"})
+        return mitre_document(report, service)
+
+    @app.get("/api/mitre/attack-runs/{run_id}", response_model=MitreReportDto)
+    def mitre_attack_run(run_id: str, service: Service) -> MitreReportDto:
+        report = service.mitre_attack_run_report(run_id)
+        if report is None:
+            raise HTTPException(404, {"code": "simulation_not_found", "message": f"Unknown simulation: {run_id}"})
+        return mitre_document(report, service)
+
+    @app.get("/api/mitre/alerts/{alert_id}", response_model=MitreReportDto)
+    def mitre_alert(alert_id: str, service: Service) -> MitreReportDto:
+        report = service.mitre_alert_report(alert_id)
+        if report is None:
+            raise HTTPException(404, {"code": "alert_not_found", "message": f"Unknown alert: {alert_id}"})
+        return mitre_document(report, service)
 
     @app.get("/api/graph/overview")
     def graph_overview(service: Service) -> GraphOverviewDto:

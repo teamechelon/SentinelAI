@@ -465,3 +465,80 @@ export interface GraphAttackRunContext {
   findings: GraphFinding[];
   eventIds: string[];
 }
+
+export type MitreConfidence = "none" | "low" | "medium" | "high";
+
+export interface MitreTechnique {
+  techniqueId: string;
+  name: string;
+  tactics: string[];
+  description: string;
+  sourceVersion: string;
+  sourceUrl: string;
+}
+
+export interface MitreCatalog {
+  sourceVersion: string;
+  sourceUrl: string;
+  techniques: MitreTechnique[];
+}
+
+export interface MitreMapping {
+  techniqueId: string;
+  techniqueName: string;
+  tactic: string;
+  confidence: Exclude<MitreConfidence, "none">;
+  observedBehaviour: string;
+  explanation: string;
+  supportingEventIds: string[];
+  supportingRuleNames: string[];
+  supportingSequenceFindings: string[];
+  supportingGraphFindings: string[];
+  evidenceCount: number;
+}
+
+export interface ThreatTimelineEntry {
+  timestamp: string;
+  eventId: string;
+  activity: string;
+  observation: string;
+  riskLevel: RiskLevel | null;
+}
+
+export interface ThreatStory {
+  title: string;
+  summary: string;
+  employeeId: string;
+  employeeName: string;
+  riskLevel: RiskLevel;
+  timeline: ThreatTimelineEntry[];
+  keyEvidence: string[];
+  sequenceContext: string[];
+  graphContext: string[];
+  mappedTechniqueIds: string[];
+  investigationFocus: string[];
+}
+
+export interface MitreReport {
+  subjectType: "event" | "attack_run" | "alert";
+  subjectId: string;
+  confidence: MitreConfidence;
+  threatStory: ThreatStory;
+  timeline: ThreatTimelineEntry[];
+  mappings: MitreMapping[];
+  supportingEvents: ActivityRecord[];
+  sequenceEvidence: SequenceFinding[];
+  graphEvidence: GraphFinding[];
+}
+
+export interface MitreOverview {
+  sourceVersion: string;
+  sourceUrl: string;
+  catalogTechniqueCount: number;
+  mappedTechniqueCount: number;
+  storyCount: number;
+  correlatedCaseCount: number;
+  techniqueCounts: Record<string, number>;
+  recentReports: MitreReport[];
+  affectsProductionRisk: boolean;
+}

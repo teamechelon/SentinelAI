@@ -3,6 +3,7 @@ import { ThreatFilterBar } from "@/components/threats/threat-filter-bar";
 import { ThreatQueue } from "@/components/threats/threat-queue";
 import { getSentinelDataSource } from "@/data/data-source";
 import { parseRiskFilter, parseStatusFilter } from "@/data/threat-query";
+import { ThreatStoryPanel } from "@/components/threat-intelligence/threat-story-panel";
 
 export const metadata: Metadata = { title: "Threat Queue" };
 
@@ -17,7 +18,7 @@ export default async function ThreatsPage({ searchParams }: { searchParams: Sear
   const status = parseStatusFilter(scalar(params.status));
   const focus = scalar(params.focus);
   const source = getSentinelDataSource();
-  const [threats, counts] = await Promise.all([source.listThreats({ q, risk, status }), source.getCounts()]);
+  const [threats, counts, mitre] = await Promise.all([source.listThreats({ q, risk, status }), source.getCounts(), focus ? source.getMitreAlert(focus) : Promise.resolve(null)]);
   const total = counts.alerts;
 
   return (
@@ -28,6 +29,7 @@ export default async function ThreatsPage({ searchParams }: { searchParams: Sear
       </section>
 
       <ThreatFilterBar q={q} risk={risk} status={status} />
+      {mitre && <ThreatStoryPanel report={mitre} compact />}
       <ThreatQueue threats={threats} focusedId={focus} />
     </div>
   );

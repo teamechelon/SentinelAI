@@ -1,6 +1,6 @@
 import "server-only";
 import fixture from "@/data/fixtures/sentinel-demo.v1.json";
-import type { ActivityFilters, ActivityRecord, AlertStatus, RiskLevel, SentinelFixture, ThreatFilters, UserFilters, UserSummary, GraphOverview, GraphNode, GraphEdge, GraphEntityDetail, GraphEventContext, GraphAttackRunContext, GraphFinding, GraphData, PageResult } from "@/domain/sentinel";
+import type { ActivityFilters, ActivityRecord, AlertStatus, RiskLevel, SentinelFixture, ThreatFilters, UserFilters, UserSummary, GraphOverview, GraphNode, GraphEdge, GraphEntityDetail, GraphEventContext, GraphAttackRunContext, GraphFinding, GraphData, PageResult, MitreCatalog, MitreOverview } from "@/domain/sentinel";
 
 import { SentinelApiError } from "@/data/http-data-source";
 import type { SentinelDataSource } from "@/data/sentinel-data-source";
@@ -222,4 +222,23 @@ export const fixtureDataSource: SentinelDataSource = {
   getGraphFindings: async (): Promise<PageResult<GraphFinding>> => {
     return { items: [], page: { page: 1, pageSize: 50, total: 0, totalPages: 1 } };
   },
+  getMitreCatalog: async (): Promise<MitreCatalog> => ({
+    sourceVersion: "Enterprise ATT&CK v19.2",
+    sourceUrl: "https://github.com/mitre-attack/attack-stix-data/releases/tag/v19.2",
+    techniques: [],
+  }),
+  getMitreOverview: async (): Promise<MitreOverview> => ({
+    sourceVersion: "Enterprise ATT&CK v19.2",
+    sourceUrl: "https://github.com/mitre-attack/attack-stix-data/releases/tag/v19.2",
+    catalogTechniqueCount: 0,
+    mappedTechniqueCount: 0,
+    storyCount: 0,
+    correlatedCaseCount: 0,
+    techniqueCounts: {},
+    recentReports: [],
+    affectsProductionRisk: false,
+  }),
+  getMitreEvent: async () => null,
+  getMitreAttackRun: async () => null,
+  getMitreAlert: async () => null,
 };

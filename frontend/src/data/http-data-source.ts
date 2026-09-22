@@ -1,5 +1,5 @@
 import "server-only";
-import type { ActivityFilters, ActivityRecord, AttackLabRun, AttackLabScenario, CreateAttackLabRun, ModelEvaluationReport, ModelMetadata, OperationsOverview, PageResult, QuantumEvaluationReport, SystemCounts, SystemStatusSnapshot, ThreatFilters, ThreatSummary, UserDetail, UserFilters, UserSummary, GraphOverview, GraphEntityDetail, GraphEventContext, GraphAttackRunContext, GraphFinding, GraphData, GraphFilters } from "@/domain/sentinel";
+import type { ActivityFilters, ActivityRecord, AttackLabRun, AttackLabScenario, CreateAttackLabRun, ModelEvaluationReport, ModelMetadata, OperationsOverview, PageResult, QuantumEvaluationReport, SystemCounts, SystemStatusSnapshot, ThreatFilters, ThreatSummary, UserDetail, UserFilters, UserSummary, GraphOverview, GraphEntityDetail, GraphEventContext, GraphAttackRunContext, GraphFinding, GraphData, GraphFilters, MitreCatalog, MitreOverview, MitreReport } from "@/domain/sentinel";
 
 import type { SentinelDataSource } from "@/data/sentinel-data-source";
 
@@ -130,4 +130,18 @@ export class HttpDataSource implements SentinelDataSource {
   async getGraphFindings(filters?: { severity?: string; findingType?: string; entityType?: string; employeeId?: string }): Promise<PageResult<GraphFinding>> {
     return this.get<PageResult<GraphFinding>>("/api/graph/findings" + queryString(filters ?? {}));
   }
+
+  getMitreCatalog() { return this.get<MitreCatalog>("/api/mitre/catalog"); }
+  getMitreOverview() { return this.get<MitreOverview>("/api/mitre/overview"); }
+  private async getMitreReport(path: string): Promise<MitreReport | null> {
+    try {
+      return await this.get<MitreReport>(path);
+    } catch (error) {
+      if (error instanceof SentinelApiError && error.status === 404) return null;
+      throw error;
+    }
+  }
+  getMitreEvent(eventId: string) { return this.getMitreReport(`/api/mitre/events/${encodeURIComponent(eventId)}`); }
+  getMitreAttackRun(simulationId: string) { return this.getMitreReport(`/api/mitre/attack-runs/${encodeURIComponent(simulationId)}`); }
+  getMitreAlert(alertId: string) { return this.getMitreReport(`/api/mitre/alerts/${encodeURIComponent(alertId)}`); }
 }

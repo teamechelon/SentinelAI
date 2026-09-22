@@ -25,6 +25,8 @@ from sentinel_ai.domain import (
 from sentinel_ai.features import build_feature_vector
 from sentinel_ai.graph import SecurityGraph, analyze_graph, build_security_graph, select_subgraph
 from sentinel_ai.models import IsolationForestDetector
+from sentinel_ai.mitre import ATTACK_SOURCE_URL, ATTACK_VERSION, build_report, catalog
+from sentinel_ai.mitre.models import MitreReport
 from sentinel_ai.storage import SentinelDatabase
 
 
@@ -284,6 +286,97 @@ class SentinelService:
     def alert_rows(self) -> list[dict[str, object]]:
         return self.database.list_alert_rows()
 
+    def _mitre_inputs_for_events(self, event_ids: list[str]) -> tuple[list[ActivityEvent], list[dict[str, object]]]:
+        selected = set(event_ids)
+        events = [event for event in self.database.list_activity_events() if event.event_id in selected]
+        detections = [row for row in self.detection_rows() if str(row["event_id"]) in selected]
+        return events, detections
+
+    def mitre_event_report(self, event_id: str) -> MitreReport | None:
+        event = self.database.get_event(event_id)
+        if event is None:
+            return None
+        event_row = next((row for row in self.event_rows() if str(row["event_id"]) == event_id), None)
+        simulation_id = str(event_row["simulation_id"]) if event_row and event_row.get("simulation_id") else None
+        if simulation_id:
+            run = self.simulation_run(simulation_id)
+            events, detections = self._mitre_inputs_for_events(list(run.event_ids))
+            graph = self.graph_attack_run_context(simulation_id)
+            graph_findings = graph["findings"] if graph else []
+            return build_report("event", event_id, events, detections, run.findings, graph_findings)
+        detections = [row for row in self.detection_rows() if str(row["event_id"]) == event_id]
+        graph = self.graph_event_context(event_id)
+        return build_report("event", event_id, [event], detections, (), graph["findings"] if graph else ())
+
+    def mitre_attack_run_report(self, simulation_id: str) -> MitreReport | None:
+        try:
+            run = self.simulation_run(simulation_id)
+        except KeyError:
+            return None
+        events, detections = self._mitre_inputs_for_events(list(run.event_ids))
+        graph = self.graph_attack_run_context(simulation_id)
+        return build_report(
+            "attack_run", simulation_id, events, detections, run.findings,
+            graph["findings"] if graph else (),
+        )
+
+    def mitre_alert_report(self, alert_id: str) -> MitreReport | None:
+        row = self.database.get_alert_row(alert_id)
+        if row is None:
+            return None
+        report = self.mitre_event_report(str(row["event_id"]))
+        if report is None:
+            return None
+        return replace(report, subject_type="alert", subject_id=alert_id)
+
+    def mitre_overview(self) -> dict[str, object]:
+        reports: list[MitreReport] = []
+        seen_subject_events: set[str] = set()
+        event_rows = {str(row["event_id"]): row for row in self.event_rows()}
+        detection_rows = self.detection_rows()
+        all_events = {event.event_id: event for event in self.database.list_activity_events()}
+        graph_findings = self.build_graph().findings
+        for row in self.alert_rows():
+            event_id = str(row["event_id"])
+            if event_id in seen_subject_events:
+                continue
+            simulation_id = str(event_rows[event_id]["simulation_id"]) if event_id in event_rows and event_rows[event_id].get("simulation_id") else None
+            if simulation_id:
+                run = self.simulation_run(simulation_id)
+                selected_ids = set(run.event_ids)
+                selected_events = [all_events[item] for item in run.event_ids if item in all_events]
+                selected_sequences = run.findings
+            else:
+                selected_ids = {event_id}
+                selected_events = [all_events[event_id]] if event_id in all_events else []
+                selected_sequences = ()
+            selected_detections = [item for item in detection_rows if str(item["event_id"]) in selected_ids]
+            selected_graph = [
+                finding for finding in graph_findings
+                if selected_ids.intersection(finding.supporting_events)
+            ]
+            report = build_report("alert", str(row["alert_id"]), selected_events, selected_detections, selected_sequences, selected_graph)
+            if report.mappings:
+                reports.append(report)
+                seen_subject_events.update(event.event_id for event in report.supporting_events)
+            if len(reports) >= 8:
+                break
+        technique_counts: dict[str, int] = defaultdict(int)
+        for report in reports:
+            for mapping in report.mappings:
+                technique_counts[mapping.technique_id] += 1
+        return {
+            "source_version": ATTACK_VERSION,
+            "source_url": ATTACK_SOURCE_URL,
+            "catalog_technique_count": len(catalog()),
+            "mapped_technique_count": len(technique_counts),
+            "story_count": len(reports),
+            "correlated_case_count": sum(len(report.supporting_events) > 1 for report in reports),
+            "technique_counts": technique_counts,
+            "recent_reports": reports,
+            "affects_production_risk": config.ENABLE_MITRE_RISK_CONTRIBUTION,
+        }
+
     def build_graph(self) -> SecurityGraph:
         """Build security graph from current database state."""
         employees = self.employees()
@@ -425,4 +518,3 @@ class SentinelService:
             employee_id=employee_id,
             attack_run_id=attack_run_id,
         )
-

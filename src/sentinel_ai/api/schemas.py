@@ -397,3 +397,78 @@ class GraphDataDto(ApiModel):
     nodes: list[GraphNodeDto]
     edges: list[GraphEdgeDto]
     findings: list[GraphFindingDto]
+
+
+class MitreTechniqueDto(ApiModel):
+    technique_id: str
+    name: str
+    tactics: list[str]
+    description: str
+    source_version: str
+    source_url: str
+
+
+class MitreCatalogDto(ApiModel):
+    source_version: str
+    source_url: str
+    techniques: list[MitreTechniqueDto]
+
+
+class MitreMappingDto(ApiModel):
+    technique_id: str
+    technique_name: str
+    tactic: str
+    confidence: str
+    observed_behaviour: str
+    explanation: str
+    supporting_event_ids: list[str]
+    supporting_rule_names: list[str]
+    supporting_sequence_findings: list[str]
+    supporting_graph_findings: list[str]
+    evidence_count: int
+
+
+class ThreatTimelineEntryDto(ApiModel):
+    timestamp: datetime
+    event_id: str
+    activity: str
+    observation: str
+    risk_level: str | None
+
+
+class ThreatStoryDto(ApiModel):
+    title: str
+    summary: str
+    employee_id: str
+    employee_name: str
+    risk_level: str
+    timeline: list[ThreatTimelineEntryDto]
+    key_evidence: list[str]
+    sequence_context: list[str]
+    graph_context: list[str]
+    mapped_technique_ids: list[str]
+    investigation_focus: list[str]
+
+
+class MitreReportDto(ApiModel):
+    subject_type: str
+    subject_id: str
+    confidence: str
+    threat_story: ThreatStoryDto
+    timeline: list[ThreatTimelineEntryDto]
+    mappings: list[MitreMappingDto]
+    supporting_events: list[ActivityRecordDto]
+    sequence_evidence: list[SequenceFindingDto]
+    graph_evidence: list[GraphFindingDto]
+
+
+class MitreOverviewDto(ApiModel):
+    source_version: str
+    source_url: str
+    catalog_technique_count: int
+    mapped_technique_count: int
+    story_count: int
+    correlated_case_count: int
+    technique_counts: dict[str, int]
+    recent_reports: list[MitreReportDto]
+    affects_production_risk: bool
