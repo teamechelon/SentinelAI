@@ -267,6 +267,23 @@ class SentinelDatabase:
         result["event_ids"] = [str(row["event_id"]) for row in event_rows]
         return result
 
+    def list_simulation_runs(self) -> list[dict[str, Any]]:
+        with self.connection() as connection:
+            runs = connection.execute("SELECT * FROM simulation_runs").fetchall()
+            event_rows = connection.execute(
+                "SELECT simulation_id, event_id FROM simulation_events ORDER BY simulation_id, sequence_index"
+            ).fetchall()
+        from collections import defaultdict
+        events_by_run = defaultdict(list)
+        for row in event_rows:
+            events_by_run[row["simulation_id"]].append(str(row["event_id"]))
+        results = []
+        for run in runs:
+            result = dict(run)
+            result["event_ids"] = events_by_run.get(str(run["simulation_id"]), [])
+            results.append(result)
+        return results
+
     def upsert_profiles(self, profiles: list[BehaviourProfile]) -> None:
         created_at = datetime.now(timezone.utc).isoformat()
         values = [

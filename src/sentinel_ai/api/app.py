@@ -32,7 +32,14 @@ from sentinel_ai.api.schemas import (
     UserPageDto,
     UserSummaryDto,
     SequenceFindingDto,
+    GraphOverviewDto,
+    GraphEntityDetailDto,
+    GraphEventContextDto,
+    GraphAttackRunContextDto,
+    GraphFindingsPageDto,
+    GraphDataDto,
 )
+
 from sentinel_ai.api.serializers import (
     activity,
     behavioural_assessment,
@@ -42,6 +49,9 @@ from sentinel_ai.api.serializers import (
     peer_group,
     personal_baseline,
     threat,
+    graph_node,
+    graph_edge,
+    graph_finding,
 )
 from sentinel_ai.baselines import build_peer_profile, build_profiles, peer_group_key
 from sentinel_ai.demo import ATTACK_LAB_SCENARIOS
@@ -359,6 +369,100 @@ def create_app(database_path: str | Path | None = None) -> FastAPI:
     @app.get("/api/attack-lab/runs/{simulation_id}", response_model=AttackLabRunDto)
     def get_attack_lab_run(simulation_id: str, service: Service) -> AttackLabRunDto:
         return run_document(simulation_id, service)
+
+    @app.get("/api/graph/overview")
+    def graph_overview(service: Service) -> GraphOverviewDto:
+        data = service.graph_overview()
+        return GraphOverviewDto(
+            node_count=data["node_count"],
+            edge_count=data["edge_count"],
+            entity_counts=data["entity_counts"],
+            finding_count=data["finding_count"],
+            high_severity_finding_count=data["high_severity_finding_count"],
+            nodes=[graph_node(n) for n in data["nodes"]],
+            edges=[graph_edge(e) for e in data["edges"]],
+            findings=[graph_finding(f) for f in data["findings"]],
+        )
+
+    @app.get("/api/graph/entities/{entity_type}/{entity_id:path}")
+    def graph_entity_detail(entity_type: str, entity_id: str, service: Service) -> GraphEntityDetailDto:
+        data = service.graph_entity_detail(entity_type, entity_id)
+        if data is None:
+            raise HTTPException(404, {"code": "entity_not_found", "message": f"Unknown entity: {entity_type}:{entity_id}"})
+        return GraphEntityDetailDto(
+            entity=graph_node(data["entity"]),
+            connected_entities=[graph_node(n) for n in data["connected_entities"]],
+            edges=[graph_edge(e) for e in data["edges"]],
+            findings=[graph_finding(f) for f in data["findings"]],
+            event_ids=data["event_ids"],
+        )
+
+    @app.get("/api/graph/events/{event_id}")
+    def graph_event_context(event_id: str, service: Service) -> GraphEventContextDto:
+        data = service.graph_event_context(event_id)
+        if data is None:
+            raise HTTPException(404, {"code": "event_not_found", "message": f"Unknown event: {event_id}"})
+        return GraphEventContextDto(
+            event_id=data["event_id"],
+            entities=[graph_node(n) for n in data["entities"]],
+            findings=[graph_finding(f) for f in data["findings"]],
+        )
+
+    @app.get("/api/graph/attack-runs/{simulation_id}")
+    def graph_attack_run_context(simulation_id: str, service: Service) -> GraphAttackRunContextDto:
+        data = service.graph_attack_run_context(simulation_id)
+        if data is None:
+            raise HTTPException(404, {"code": "simulation_not_found", "message": f"Unknown simulation: {simulation_id}"})
+        return GraphAttackRunContextDto(
+            simulation_id=data["simulation_id"],
+            employees=[graph_node(n) for n in data["employees"]],
+            devices=[graph_node(n) for n in data["devices"]],
+            ip_addresses=[graph_node(n) for n in data["ip_addresses"]],
+            locations=[graph_node(n) for n in data["locations"]],
+            files=[graph_node(n) for n in data["files"]],
+            findings=[graph_finding(f) for f in data["findings"]],
+            event_ids=data["event_ids"],
+        )
+
+    @app.get("/api/graph/findings")
+    def list_graph_findings(
+        service: Service,
+        severity: str | None = None,
+        finding_type: str | None = None,
+        entity_type: str | None = None,
+        employee_id: str | None = None,
+        page: Annotated[int, Query(ge=1)] = 1,
+        page_size: Annotated[int, Query(ge=1, le=100)] = 50,
+    ) -> GraphFindingsPageDto:
+        findings = service.graph_findings(severity=severity, finding_type=finding_type, entity_type=entity_type, employee_id=employee_id)
+        total = len(findings)
+        offset = (page - 1) * page_size
+        items = [graph_finding(f) for f in findings[offset:offset + page_size]]
+        return GraphFindingsPageDto(items=items, page=_page_meta(page, page_size, total))
+
+    @app.get("/api/graph/data")
+    def graph_data(
+        service: Service,
+        node_type: Annotated[str | None, Query(alias="nodeType")] = None,
+        severity: str | None = None,
+        employee_id: Annotated[str | None, Query(alias="employeeId")] = None,
+        attack_run_id: Annotated[str | None, Query(alias="attackRunId")] = None,
+        max_nodes: Annotated[int | None, Query(alias="maxNodes")] = None,
+    ) -> GraphDataDto:
+        data = service.graph_data(
+            node_type=node_type,
+            severity=severity,
+            employee_id=employee_id,
+            attack_run_id=attack_run_id,
+            max_nodes=max_nodes,
+        )
+        return GraphDataDto(
+            nodes=[graph_node(n) for n in data["nodes"]],
+            edges=[graph_edge(e) for e in data["edges"]],
+            findings=[graph_finding(f) for f in data["findings"]],
+        )
+
+
 
     return app
 

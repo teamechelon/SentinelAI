@@ -23,6 +23,7 @@ from sentinel_ai.domain import (
     SimulationRun,
 )
 from sentinel_ai.features import build_feature_vector
+from sentinel_ai.graph import SecurityGraph, analyze_graph, build_security_graph
 from sentinel_ai.models import IsolationForestDetector
 from sentinel_ai.storage import SentinelDatabase
 
@@ -282,4 +283,181 @@ class SentinelService:
 
     def alert_rows(self) -> list[dict[str, object]]:
         return self.database.list_alert_rows()
+
+    def build_graph(self) -> SecurityGraph:
+        """Build security graph from current database state."""
+        employees = self.employees()
+        events = self.database.list_activity_events()
+        detection_rows = self.detection_rows()
+        simulation_runs = self._list_simulation_runs()
+        graph = build_security_graph(employees, events, detection_rows, simulation_runs)
+        findings = analyze_graph(graph, events, detection_rows, config)
+        graph.findings = findings
+        return graph
+
+    def _list_simulation_runs(self) -> list[dict]:
+        """List all simulation runs from database."""
+        return self.database.list_simulation_runs()
+
+    def graph_overview(self) -> dict:
+        graph = self.build_graph()
+        entity_counts = {}
+        for node_type in ["employee", "device", "ip_address", "location", "file", "department", "attack_run"]:
+            entity_counts[node_type] = len(graph.nodes_by_type(node_type))
+        high_severity = sum(1 for f in graph.findings if f.severity in ("high", "critical"))
+        return {
+            "node_count": len(graph.nodes),
+            "edge_count": len(graph.edges),
+            "entity_counts": entity_counts,
+            "finding_count": len(graph.findings),
+            "high_severity_finding_count": high_severity,
+            "findings": graph.findings,
+            "nodes": list(graph.nodes.values()),
+            "edges": graph.edges,
+        }
+
+    def graph_entity_detail(self, entity_type: str, entity_id: str) -> dict | None:
+        graph = self.build_graph()
+        full_id = f"{entity_type}:{entity_id}"
+        node = graph.nodes.get(full_id)
+        if not node:
+            return None
+        neighbors = graph.neighbors(full_id)
+        edges = graph.edges_for(full_id)
+        findings = graph.findings_for(full_id)
+        # Get related event IDs from edges
+        event_ids = set()
+        for edge in edges:
+            if "event_id" in edge.metadata:
+                event_ids.add(edge.metadata["event_id"])
+        return {
+            "entity": node,
+            "connected_entities": neighbors,
+            "edges": edges,
+            "findings": findings,
+            "event_ids": sorted(event_ids),
+        }
+
+    def graph_event_context(self, event_id: str) -> dict | None:
+        event = self.database.get_event(event_id)
+        if not event:
+            return None
+        graph = self.build_graph()
+        # Find all nodes connected to this event
+        related_nodes = []
+        related_findings = []
+        for edge in graph.edges:
+            if edge.metadata.get("event_id") == event_id:
+                for nid in [edge.source_id, edge.target_id]:
+                    if nid in graph.nodes:
+                        related_nodes.append(graph.nodes[nid])
+        # Deduplicate
+        seen = set()
+        unique_nodes = []
+        for n in related_nodes:
+            if n.node_id not in seen:
+                seen.add(n.node_id)
+                unique_nodes.append(n)
+        # Findings mentioning this event
+        for f in graph.findings:
+            if event_id in f.supporting_events:
+                related_findings.append(f)
+        return {
+            "event_id": event_id,
+            "entities": unique_nodes,
+            "findings": related_findings,
+        }
+
+    def graph_attack_run_context(self, simulation_id: str) -> dict | None:
+        run_data = self.database.get_simulation_run(simulation_id)
+        if not run_data:
+            return None
+        graph = self.build_graph()
+        run_node_id = f"attack_run:{simulation_id}"
+        # Get all connected entities
+        neighbors = graph.neighbors(run_node_id)
+        findings = graph.findings_for(run_node_id)
+        # Also find findings for all events in the run
+        event_ids = run_data.get("event_ids", [])
+        for eid in event_ids:
+            for f in graph.findings:
+                if eid in f.supporting_events and f not in findings:
+                    findings.append(f)
+        # Categorize neighbors
+        result = {
+            "simulation_id": simulation_id,
+            "employees": [n for n in neighbors if n.node_type == "employee"],
+            "devices": [n for n in neighbors if n.node_type == "device"],
+            "ip_addresses": [n for n in neighbors if n.node_type == "ip_address"],
+            "locations": [n for n in neighbors if n.node_type == "location"],
+            "files": [n for n in neighbors if n.node_type == "file"],
+            "findings": findings,
+            "event_ids": event_ids,
+        }
+        return result
+
+    def graph_findings(self, severity=None, finding_type=None, entity_type=None, employee_id=None) -> list:
+        graph = self.build_graph()
+        results = list(graph.findings)
+        if severity:
+            results = [f for f in results if f.severity == severity]
+        if finding_type:
+            results = [f for f in results if f.finding_type == finding_type]
+        if employee_id:
+            emp_id = f"employee:{employee_id}"
+            results = [f for f in results if emp_id in f.entities]
+        if entity_type:
+            results = [f for f in results if any(e.startswith(f"{entity_type}:") for e in f.entities)]
+        return results
+
+    def graph_data(
+        self,
+        node_type: str | None = None,
+        severity: str | None = None,
+        employee_id: str | None = None,
+        attack_run_id: str | None = None,
+        max_nodes: int | None = None,
+    ) -> dict:
+        graph = self.build_graph()
+        nodes = list(graph.nodes.values())
+        edges = list(graph.edges)
+        findings = list(graph.findings)
+
+        if node_type:
+            nodes = [n for n in nodes if n.node_type == node_type]
+            node_ids = {n.node_id for n in nodes}
+            edges = [e for e in edges if e.source_id in node_ids or e.target_id in node_ids]
+
+        if severity:
+            findings = [f for f in findings if f.severity == severity]
+
+        if employee_id:
+            emp_node_id = f"employee:{employee_id}"
+            nodes = [n for n in nodes if n.node_id == emp_node_id or emp_node_id in [e.source_id for e in edges if e.target_id == n.node_id] or emp_node_id in [e.target_id for e in edges if e.source_id == n.node_id]]
+            node_ids = {n.node_id for n in nodes}
+            edges = [e for e in edges if e.source_id in node_ids and e.target_id in node_ids]
+            findings = [f for f in findings if emp_node_id in f.entities]
+
+        if attack_run_id:
+            run_node_id = f"attack_run:{attack_run_id}"
+            run_edges = [e for e in edges if e.source_id == run_node_id or e.target_id == run_node_id]
+            node_ids = {run_node_id}
+            for e in run_edges:
+                node_ids.add(e.source_id)
+                node_ids.add(e.target_id)
+            nodes = [n for n in nodes if n.node_id in node_ids]
+            edges = [e for e in edges if e.source_id in node_ids and e.target_id in node_ids]
+            findings = [f for f in findings if run_node_id in f.entities or any(eid in f.supporting_events for eid in [e.metadata.get("event_id") for e in edges if e.metadata.get("event_id")])]
+
+        if max_nodes and len(nodes) > max_nodes:
+            nodes.sort(key=lambda n: (0 if n.node_type != "event" else 1, n.node_id))
+            nodes = nodes[:max_nodes]
+            node_ids = {n.node_id for n in nodes}
+            edges = [e for e in edges if e.source_id in node_ids and e.target_id in node_ids]
+
+        return {
+            "nodes": nodes,
+            "edges": edges,
+            "findings": findings,
+        }
 

@@ -26,8 +26,12 @@ from sentinel_ai.api.schemas import (
     RiskPointDto,
     ThreatTrendPointDto,
     ThreatSummaryDto,
+    GraphNodeDto,
+    GraphEdgeDto,
+    GraphFindingDto,
 )
 from sentinel_ai.domain import BehaviouralAssessment, BehaviourProfile, PeerBehaviourProfile
+from sentinel_ai.graph.models import GraphEdge, GraphFinding, GraphNode
 
 
 def humanize(value: str) -> str:
@@ -237,4 +241,21 @@ def overview(detections: list[dict[str, Any]], alerts: list[dict[str, Any]]) -> 
             key=lambda item: item.average_risk or 0,
             reverse=True,
         ),
+    )
+
+def graph_node(node: GraphNode) -> GraphNodeDto:
+    return GraphNodeDto(node_id=node.node_id, node_type=node.node_type, label=node.label, metadata=node.metadata)
+
+def graph_edge(edge: GraphEdge) -> GraphEdgeDto:
+    return GraphEdgeDto(source_id=edge.source_id, target_id=edge.target_id, edge_type=edge.edge_type, metadata=edge.metadata)
+
+def graph_finding(finding: GraphFinding) -> GraphFindingDto:
+    return GraphFindingDto(
+        finding_type=finding.finding_type,
+        severity=finding.severity,
+        entities=list(finding.entities),
+        supporting_events=list(finding.supporting_events),
+        supporting_attack_runs=list(finding.supporting_attack_runs),
+        observed_relationship=finding.observed_relationship,
+        explanation=finding.explanation,
     )

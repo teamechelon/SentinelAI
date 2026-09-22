@@ -437,7 +437,101 @@ The global Users navigation opens a compact user finder; choosing a real employe
 
 After each implementation step: typecheck, lint, production build, dev-server startup, browser verification at 1280/1440/1920 widths, screenshots, keyboard review, and rendered anti-slop review.
 
-## 13. Step 2 approval boundary
+## 13. Graph-Based Security Analysis
+
+### Detection pipeline position
+
+```
+Classical + Quantum Analysis
+          ↓
+    Sequence Analysis
+          +
+     Graph Analysis (supplementary)
+          ↓
+       Risk Engine
+```
+
+Graph analysis provides supplementary explainable evidence. It does **not** modify production risk scores in this milestone. A configuration flag `ENABLE_GRAPH_RISK_CONTRIBUTION = False` is present and disabled.
+
+### Graph node types
+
+| Type | Source | ID format |
+|------|--------|-----------|
+| `employee` | `employees` table | `employee:{employee_id}` |
+| `device` | Event `device_id` field | `device:{device_id}` |
+| `ip_address` | Event `ip_address` field | `ip_address:{ip}` |
+| `location` | Event `city`, `country` fields | `location:{city}, {country}` |
+| `file` | Event `file_name` (Confidential/Restricted only) | `file:{file_name}` |
+| `department` | Employee `department` field | `department:{department}` |
+| `attack_run` | `simulation_runs` table | `attack_run:{simulation_id}` |
+
+### Relationship edge types
+
+| Edge type | Source → Target | Derived from |
+|-----------|----------------|--------------|
+| `USES_DEVICE` | employee → device | Activity event `device_id` |
+| `CONNECTS_FROM` | employee → ip_address | Activity event `ip_address` |
+| `LOGS_IN_FROM` | employee → location | Activity event `city`, `country` |
+| `ACCESSES_FILE` | employee → file | Activity event `file_name` |
+| `BELONGS_TO` | employee → department | Employee `department` |
+| `PART_OF_ATTACK_RUN` | event → attack_run | `simulation_events` table |
+| `ASSOCIATED_WITH_ATTACK` | employee → attack_run | `simulation_runs` table |
+
+### Graph finding rules
+
+| Finding type | Trigger condition | Severity logic |
+|-------------|-------------------|----------------|
+| `SHARED_DEVICE` | Device used by ≥2 employees with medium+ risk events | `high` if High/Critical events; `medium` if Medium; else `informational` |
+| `SHARED_IP` | IP shared by ≥3 employees with high-risk events | `critical` if ≥3 H/C events; `high` if any; `medium` if multiple medium |
+| `MULTI_USER_SUSPICIOUS_INFRASTRUCTURE` | Same device+IP used by multiple employees in high-risk events within time window | `critical` if Critical event; else `high` |
+| `SENSITIVE_FILE_CONVERGENCE` | Multiple employees access same Confidential/Restricted file within time window | `high` if ≥3 employees; else `medium` |
+| `ATTACK_INFRASTRUCTURE_CLUSTER` | Attack run infrastructure appears in other suspicious events | `high` |
+| `HIGH_RISK_ENTITY` | Entity has ≥50% High/Critical events (min 3 total) | `critical` if ≥80%; else `high` |
+
+### Time window configuration
+
+All temporal thresholds are centralized in `src/sentinel_ai/config.py`:
+
+- `GRAPH_SHARED_ENTITY_WINDOW_MINUTES = 60`
+- `GRAPH_FILE_CONVERGENCE_WINDOW_MINUTES = 15`
+- `GRAPH_SHARED_DEVICE_MIN_EMPLOYEES = 2`
+- `GRAPH_SHARED_IP_MIN_EMPLOYEES = 3`
+- `GRAPH_HIGH_RISK_EVENT_RATIO_THRESHOLD = 0.5`
+
+### Why graph findings do not yet change production risk
+
+Graph analysis is supplementary in this milestone to:
+1. Allow analysts to evaluate graph-based evidence quality before trusting it for automation.
+2. Avoid changing the 10 validated regression risk scores.
+3. Build confidence in graph finding accuracy over real-world data.
+4. Future milestone will introduce `ENABLE_GRAPH_RISK_CONTRIBUTION = True` with weighted graph evidence contribution to the hybrid risk score.
+
+### Graph API endpoints
+
+| Method | Path | Response |
+|--------|------|----------|
+| GET | `/api/graph/overview` | `GraphOverviewDto` — node/edge counts, entity breakdown, all findings |
+| GET | `/api/graph/entities/{type}/{id}` | `GraphEntityDetailDto` — entity + neighbors + findings |
+| GET | `/api/graph/events/{event_id}` | `GraphEventContextDto` — entities + findings for event |
+| GET | `/api/graph/attack-runs/{sim_id}` | `GraphAttackRunContextDto` — categorized connected entities |
+| GET | `/api/graph/findings` | `GraphFindingsPageDto` — filtered, paginated findings |
+
+All endpoints follow existing API conventions: camelCase wire format, `ApiModel` base class, standard error envelope.
+
+### Graph UI
+
+The `/graph` page contains:
+1. **Summary cards** — total entities, relationships, shared devices, shared IPs, high-risk findings.
+2. **Interactive visualization** — ECharts Graph Series with force layout, zoom/pan, node selection, adjacency highlighting, and tooltips.
+3. **Findings table** — severity badges, entity lists, explanations.
+4. **Entity detail panel** — contextual panel on node selection showing metadata and connections.
+
+Integration points:
+- Activity table shows device/IP/location badges inline.
+- User detail page shows "Relationship Context" section with derived device/IP/location/file summaries.
+- Attack Lab run detail shows connected infrastructure context.
+
+## 14. Step 2 approval boundary
 
 If this proposal is approved, Step 2 will scaffold the frontend, pin compatible dependencies, implement only the centralized tokens, AppShell, Overview, and Threat Queue, generate the initial fixture through the Python reference implementation, and run the complete quality gate.
 

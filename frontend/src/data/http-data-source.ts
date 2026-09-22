@@ -1,5 +1,6 @@
 import "server-only";
-import type { ActivityFilters, ActivityRecord, AttackLabRun, AttackLabScenario, CreateAttackLabRun, ModelEvaluationReport, ModelMetadata, OperationsOverview, PageResult, QuantumEvaluationReport, SystemCounts, SystemStatusSnapshot, ThreatFilters, ThreatSummary, UserDetail, UserFilters, UserSummary } from "@/domain/sentinel";
+import type { ActivityFilters, ActivityRecord, AttackLabRun, AttackLabScenario, CreateAttackLabRun, ModelEvaluationReport, ModelMetadata, OperationsOverview, PageResult, QuantumEvaluationReport, SystemCounts, SystemStatusSnapshot, ThreatFilters, ThreatSummary, UserDetail, UserFilters, UserSummary, GraphOverview, GraphEntityDetail, GraphEventContext, GraphAttackRunContext, GraphFinding, GraphData, GraphFilters } from "@/domain/sentinel";
+
 import type { SentinelDataSource } from "@/data/sentinel-data-source";
 
 interface ApiErrorDocument { error?: { code?: string; message?: string } }
@@ -88,4 +89,45 @@ export class HttpDataSource implements SentinelDataSource {
   listModels() { return this.get<ModelMetadata[]>("/api/models"); }
   getModelEvaluation() { return this.get<ModelEvaluationReport>("/api/models/evaluation"); }
   getQuantumEvaluation() { return this.get<QuantumEvaluationReport>("/api/models/quantum"); }
+
+  async getGraphOverview(): Promise<GraphOverview> {
+    return this.get<GraphOverview>("/api/graph/overview");
+  }
+
+  async getGraphData(filters?: GraphFilters): Promise<GraphData> {
+    return this.get<GraphData>("/api/graph/data" + queryString((filters ?? {}) as Record<string, string | number | boolean | undefined>));
+  }
+
+
+  async getGraphEntityDetail(entityType: string, entityId: string): Promise<GraphEntityDetail | null> {
+
+    try {
+      return await this.get<GraphEntityDetail>(`/api/graph/entities/${encodeURIComponent(entityType)}/${encodeURIComponent(entityId)}`);
+    } catch (err) {
+      if (err instanceof SentinelApiError && err.status === 404) return null;
+      throw err;
+    }
+  }
+
+  async getGraphEventContext(eventId: string): Promise<GraphEventContext | null> {
+    try {
+      return await this.get<GraphEventContext>(`/api/graph/events/${encodeURIComponent(eventId)}`);
+    } catch (err) {
+      if (err instanceof SentinelApiError && err.status === 404) return null;
+      throw err;
+    }
+  }
+
+  async getGraphAttackRunContext(simulationId: string): Promise<GraphAttackRunContext | null> {
+    try {
+      return await this.get<GraphAttackRunContext>(`/api/graph/attack-runs/${encodeURIComponent(simulationId)}`);
+    } catch (err) {
+      if (err instanceof SentinelApiError && err.status === 404) return null;
+      throw err;
+    }
+  }
+
+  async getGraphFindings(filters?: { severity?: string; findingType?: string; entityType?: string; employeeId?: string }): Promise<PageResult<GraphFinding>> {
+    return this.get<PageResult<GraphFinding>>("/api/graph/findings" + queryString(filters ?? {}));
+  }
 }

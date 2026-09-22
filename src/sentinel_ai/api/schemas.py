@@ -337,3 +337,65 @@ class AttackLabRunDto(ApiModel):
     event_ids: list[str]
     findings: list[SequenceFindingDto]
     events: list[ActivityRecordDto]
+
+class GraphNodeDto(ApiModel):
+    node_id: str
+    node_type: str
+    label: str
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+class GraphEdgeDto(ApiModel):
+    source_id: str
+    target_id: str
+    edge_type: str
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+class GraphFindingDto(ApiModel):
+    finding_type: str
+    severity: str
+    entities: list[str]
+    supporting_events: list[str]
+    supporting_attack_runs: list[str]
+    observed_relationship: str
+    explanation: str
+
+class GraphOverviewDto(ApiModel):
+    node_count: int
+    edge_count: int
+    entity_counts: dict[str, int]
+    finding_count: int
+    high_severity_finding_count: int
+    nodes: list[GraphNodeDto]
+    edges: list[GraphEdgeDto]
+    findings: list[GraphFindingDto]
+
+class GraphEntityDetailDto(ApiModel):
+    entity: GraphNodeDto
+    connected_entities: list[GraphNodeDto]
+    edges: list[GraphEdgeDto]
+    findings: list[GraphFindingDto]
+    event_ids: list[str]
+
+class GraphEventContextDto(ApiModel):
+    event_id: str
+    entities: list[GraphNodeDto]
+    findings: list[GraphFindingDto]
+
+class GraphAttackRunContextDto(ApiModel):
+    simulation_id: str
+    employees: list[GraphNodeDto]
+    devices: list[GraphNodeDto]
+    ip_addresses: list[GraphNodeDto]
+    locations: list[GraphNodeDto]
+    files: list[GraphNodeDto]
+    findings: list[GraphFindingDto]
+    event_ids: list[str]
+
+class GraphFindingsPageDto(ApiModel):
+    items: list[GraphFindingDto]
+    page: PageMeta
+
+class GraphDataDto(ApiModel):
+    nodes: list[GraphNodeDto]
+    edges: list[GraphEdgeDto]
+    findings: list[GraphFindingDto]

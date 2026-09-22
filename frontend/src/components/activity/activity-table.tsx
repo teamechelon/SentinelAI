@@ -22,7 +22,17 @@ export function ActivityTable({ items }: { items: ActivityRecord[] }) {
               <td className="px-3 py-3"><span className="font-mono text-[10px] text-[var(--text-secondary)]">{item.eventId}</span>{item.simulationId && <span className="mt-1 block font-mono text-[9px] text-[var(--accent-strong)]">RUN {item.simulationId}</span>}</td>
               <td className="px-3 py-3"><Link href={`/users/${item.employeeId}`} className="text-[12px] font-medium hover:text-[var(--accent-strong)]">{item.employeeName}</Link><span className="mt-0.5 block text-[10px] text-[var(--text-muted)]">{item.employeeId} · {item.department}</span></td>
               <td className="px-3 py-3"><span className="text-[12px] font-medium">{readable(item.activityType)}</span><span className="mt-0.5 block text-[10px] text-[var(--text-muted)]">{readable(item.scenario)}</span>{item.resourceName && <span className="mt-1 block max-w-56 truncate text-[10px] text-[var(--text-secondary)]">{item.resourceName} · {item.resourceSensitivity}</span>}</td>
-              <td className="hidden px-3 py-3 text-[10px] xl:table-cell"><span className="block text-[var(--text-secondary)]">{item.city}, {item.country}</span><span className="mt-1 block font-mono text-[var(--text-muted)]">{item.ipAddress} · {item.deviceId}</span></td>
+              <td className="hidden px-3 py-3 text-[10px] xl:table-cell">
+                <div className="space-y-1.5">
+                  <div className="flex flex-wrap gap-1">
+                    <span className="rounded border border-[var(--border)] bg-[var(--surface-elevated)] px-1.5 py-0.5 text-[9px] font-mono text-[var(--text-secondary)]">dev:{item.deviceId}</span>
+                    <span className="rounded border border-[var(--border)] bg-[var(--surface-elevated)] px-1.5 py-0.5 text-[9px] font-mono text-[var(--text-secondary)]">ip:{item.ipAddress}</span>
+                  </div>
+                  <div className="inline-flex rounded border border-[var(--border)] bg-[var(--surface-elevated)] px-1.5 py-0.5 text-[9px] text-[var(--text-secondary)]">
+                    loc:{item.city}, {item.country}
+                  </div>
+                </div>
+              </td>
               <td className="px-3 py-3 font-mono text-[10px] text-[var(--text-secondary)]">{timestamp(item.occurredAt)}<span className="mt-1 block text-[var(--text-muted)]">UTC</span></td>
               <td className="px-3 py-3">{item.alertId ? <Link href={`/threats?focus=${encodeURIComponent(item.alertId)}`} className="font-mono text-[10px] text-[var(--accent-strong)] hover:text-foreground">{item.alertId}</Link> : <span className="text-[var(--text-muted)]">—</span>}</td>
             </tr>

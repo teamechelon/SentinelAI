@@ -1,6 +1,7 @@
 import "server-only";
 import fixture from "@/data/fixtures/sentinel-demo.v1.json";
-import type { ActivityFilters, ActivityRecord, AlertStatus, RiskLevel, SentinelFixture, ThreatFilters, UserFilters, UserSummary } from "@/domain/sentinel";
+import type { ActivityFilters, ActivityRecord, AlertStatus, RiskLevel, SentinelFixture, ThreatFilters, UserFilters, UserSummary, GraphOverview, GraphNode, GraphEdge, GraphEntityDetail, GraphEventContext, GraphAttackRunContext, GraphFinding, GraphData, PageResult } from "@/domain/sentinel";
+
 import { SentinelApiError } from "@/data/http-data-source";
 import type { SentinelDataSource } from "@/data/sentinel-data-source";
 
@@ -154,4 +155,57 @@ export const fixtureDataSource: SentinelDataSource = {
   listModels: async () => data.models,
   getModelEvaluation: async () => null,
   getQuantumEvaluation: async () => ({ status: "unavailable", reason: "Evaluation execution requires SENTINEL_DATA_SOURCE=http.", affectsProductionRisk: false }),
+  getGraphOverview: async (): Promise<GraphOverview> => {
+    const nodes: GraphNode[] = [];
+    const edges: GraphEdge[] = [];
+    const nodeSet = new Set<string>();
+
+    for (const user of data.employees) {
+      const nodeId = `employee:${user.employeeId}`;
+      if (!nodeSet.has(nodeId)) {
+        nodeSet.add(nodeId);
+        nodes.push({ nodeId, nodeType: "employee", label: user.employeeName, metadata: { department: user.department } });
+      }
+    }
+
+    for (const event of data.activity) {
+      if (event.deviceId) {
+        const nodeId = `device:${event.deviceId}`;
+        if (!nodeSet.has(nodeId)) {
+          nodeSet.add(nodeId);
+          nodes.push({ nodeId, nodeType: "device", label: event.deviceId, metadata: {} });
+        }
+        edges.push({ sourceId: `employee:${event.employeeId}`, targetId: nodeId, edgeType: "USES_DEVICE", metadata: {} });
+      }
+      if (event.ipAddress) {
+        const nodeId = `ip_address:${event.ipAddress}`;
+        if (!nodeSet.has(nodeId)) {
+          nodeSet.add(nodeId);
+          nodes.push({ nodeId, nodeType: "ip_address", label: event.ipAddress, metadata: {} });
+        }
+        edges.push({ sourceId: `employee:${event.employeeId}`, targetId: nodeId, edgeType: "CONNECTS_FROM", metadata: {} });
+      }
+    }
+
+    return {
+      nodeCount: nodes.length,
+      edgeCount: edges.length,
+      entityCounts: {},
+      findingCount: 0,
+      highSeverityFindingCount: 0,
+      nodes,
+      edges,
+      findings: [],
+    };
+  },
+  getGraphData: async (): Promise<GraphData> => {
+    const overview = await fixtureDataSource.getGraphOverview();
+    return { nodes: overview.nodes, edges: overview.edges, findings: overview.findings };
+  },
+  getGraphEntityDetail: async (): Promise<GraphEntityDetail | null> => null,
+  getGraphEventContext: async (): Promise<GraphEventContext | null> => null,
+  getGraphAttackRunContext: async (): Promise<GraphAttackRunContext | null> => null,
+  getGraphFindings: async (): Promise<PageResult<GraphFinding>> => {
+    return { items: [], page: { page: 1, pageSize: 50, total: 0, totalPages: 1 } };
+  },
 };

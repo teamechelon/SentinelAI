@@ -29,6 +29,25 @@ export default async function UserDetailPage({ params }: { params: Params }) {
     </section>
     {user.currentAssessment && <section className="panel p-4"><SectionHeading eyebrow="Latest event" title="Behavioral comparison" description={`${user.currentAssessment.comparisonCase.replaceAll("_", " ")} · personal ${user.currentAssessment.personalStatus} · peer ${user.currentAssessment.peerStatus}`} /><div className="mt-4 grid gap-3 sm:grid-cols-2"><div><span className="tech-label">Personal deviation</span><div className="mt-1 font-mono text-[16px]">{user.currentAssessment.personalDeviation?.toFixed(3) ?? "Unavailable"}</div></div><div><span className="tech-label">Peer deviation</span><div className="mt-1 font-mono text-[16px]">{user.currentAssessment.peerDeviation?.toFixed(3) ?? "Unavailable"}</div></div></div></section>}
     <section className="space-y-3"><SectionHeading eyebrow="Behaviour intelligence" title="Normal and observed behaviour" description="Visual comparison built from this employee's persisted baseline and recent activity." /><UserBehaviourVisuals user={user} /></section>
+    {(() => {
+      const devices = Array.from(new Set(user.activityHistory.map(a => a.deviceId).filter(Boolean)));
+      const ips = Array.from(new Set(user.activityHistory.map(a => a.ipAddress).filter(Boolean)));
+      const locations = Array.from(new Set(user.activityHistory.map(a => a.city && a.country ? `${a.city}, ${a.country}` : "").filter(Boolean)));
+      const sensitiveFiles = Array.from(new Set(user.activityHistory.filter(a => a.resourceSensitivity === "Confidential" || a.resourceSensitivity === "Restricted").map(a => a.resourceName).filter(Boolean)));
+      return (
+        <section className="space-y-3">
+          <SectionHeading eyebrow="Graph context" title="Relationship context" description="Derived from user's activity history" />
+          <div className="panel p-4 text-[11px]">
+            <dl className="grid grid-cols-1 md:grid-cols-2 gap-x-5 gap-y-4">
+              <div><dt className="tech-label">Known devices</dt><dd className="mt-1 font-mono break-all">{devices.length > 0 ? devices.join(", ") : "None"}</dd></div>
+              <div><dt className="tech-label">Known IPs</dt><dd className="mt-1 font-mono break-all">{ips.length > 0 ? ips.join(", ") : "None"}</dd></div>
+              <div><dt className="tech-label">Common locations</dt><dd className="mt-1 break-all">{locations.length > 0 ? locations.join(" · ") : "None"}</dd></div>
+              <div><dt className="tech-label">Sensitive files accessed</dt><dd className="mt-1 break-all">{sensitiveFiles.length > 0 ? sensitiveFiles.join(", ") : "None"}</dd></div>
+            </dl>
+          </div>
+        </section>
+      );
+    })()}
     <section className="space-y-3"><SectionHeading eyebrow="Telemetry" title="Recent activity" description="The 10 most recent persisted events; use Activity Monitor for the complete dataset." /><ActivityTable items={user.activityHistory.slice(0, 10)} /></section>
     <section className="space-y-3"><SectionHeading eyebrow="Triage" title="Related alerts" description="Persisted alert records for this user" />{user.relatedAlerts.length ? <ThreatQueue threats={user.relatedAlerts} compact /> : <div className="panel p-5 text-[11px] text-[var(--text-muted)]">No persisted alerts for this user.</div>}</section>
   </div>;

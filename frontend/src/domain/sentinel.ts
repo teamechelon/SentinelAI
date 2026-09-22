@@ -388,3 +388,82 @@ export interface QuantumEvaluationReport {
   affectsProductionRisk: boolean;
   limitations?: string[];
 }
+
+// Graph Analysis types
+export type GraphNodeType = "employee" | "event" | "device" | "ip_address" | "location" | "file" | "department" | "attack_run";
+export type GraphEdgeType = "USES_DEVICE" | "USED_DEVICE" | "CONNECTS_FROM" | "CONNECTED_FROM" | "LOGS_IN_FROM" | "OCCURRED_AT" | "ACCESSES_FILE" | "ACCESSED_FILE" | "GENERATED" | "BELONGS_TO" | "PART_OF_ATTACK_RUN" | "ASSOCIATED_WITH_ATTACK";
+export type GraphFindingSeverity = "informational" | "low" | "medium" | "high" | "critical";
+
+export interface GraphNode {
+  nodeId: string;
+  nodeType: GraphNodeType;
+  label: string;
+  metadata: Record<string, string | number>;
+}
+
+export interface GraphEdge {
+  sourceId: string;
+  targetId: string;
+  edgeType: GraphEdgeType;
+  metadata: Record<string, string | number>;
+}
+
+export interface GraphFinding {
+  findingType: string;
+  severity: GraphFindingSeverity;
+  entities: string[];
+  supportingEvents: string[];
+  supportingAttackRuns: string[];
+  observedRelationship: string;
+  explanation: string;
+}
+
+export interface GraphData {
+  nodes: GraphNode[];
+  edges: GraphEdge[];
+  findings: GraphFinding[];
+}
+
+export interface GraphFilters {
+  nodeType?: string;
+  severity?: string;
+  employeeId?: string;
+  attackRunId?: string;
+  maxNodes?: number;
+}
+
+export interface GraphOverview {
+  nodeCount: number;
+  edgeCount: number;
+  entityCounts: Record<string, number>;
+  findingCount: number;
+  highSeverityFindingCount: number;
+  nodes: GraphNode[];
+  edges: GraphEdge[];
+  findings: GraphFinding[];
+}
+
+export interface GraphEntityDetail {
+  entity: GraphNode;
+  connectedEntities: GraphNode[];
+  edges: GraphEdge[];
+  findings: GraphFinding[];
+  eventIds: string[];
+}
+
+export interface GraphEventContext {
+  eventId: string;
+  entities: GraphNode[];
+  findings: GraphFinding[];
+}
+
+export interface GraphAttackRunContext {
+  simulationId: string;
+  employees: GraphNode[];
+  devices: GraphNode[];
+  ipAddresses: GraphNode[];
+  locations: GraphNode[];
+  files: GraphNode[];
+  findings: GraphFinding[];
+  eventIds: string[];
+}
