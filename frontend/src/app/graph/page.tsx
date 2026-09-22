@@ -5,8 +5,16 @@ import { GraphFindingsTable } from "@/components/graph/graph-findings-table";
 
 export default async function GraphAnalysisPage() {
   const source = getSentinelDataSource();
-  const overview = await source.getGraphOverview();
-  
+  const [overview, graphData, findingsResult] = await Promise.all([
+    source.getGraphOverview(),
+    source.getGraphData({ maxNodes: 100 }),
+    source.getGraphFindings(),
+  ]);
+
+  const findings = findingsResult.items.length > 0 ? findingsResult.items : graphData.findings;
+  const sharedDevicesCount = findings.filter(f => f.findingType === "SHARED_DEVICE").length || (overview.entityCounts.device ?? 0);
+  const sharedIpsCount = findings.filter(f => f.findingType === "SHARED_IP").length || (overview.entityCounts.ip_address ?? 0);
+
   return (
     <div className="mx-auto max-w-[1600px] space-y-6">
       {/* Header */}
@@ -22,22 +30,22 @@ export default async function GraphAnalysisPage() {
       <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-5">
         <SummaryCard label="Total Entities" value={overview.nodeCount} />
         <SummaryCard label="Relationships" value={overview.edgeCount} />
-        <SummaryCard label="Shared Devices" value={overview.findings.filter(f => f.findingType === "SHARED_DEVICE").length} />
-        <SummaryCard label="Shared IPs" value={overview.findings.filter(f => f.findingType === "SHARED_IP").length} />
+        <SummaryCard label="Shared Devices" value={sharedDevicesCount} />
+        <SummaryCard label="Shared IPs" value={sharedIpsCount} />
         <SummaryCard label="High-Risk Findings" value={overview.highSeverityFindingCount} accent />
       </div>
       
       {/* Graph Visualization */}
       <div className="panel p-4">
         <div className="mb-3 tech-label">Entity Relationship Graph</div>
-        <GraphVisualization nodes={overview.nodes} edges={overview.edges} />
+        <GraphVisualization nodes={graphData.nodes} edges={graphData.edges} />
       </div>
       
       {/* Findings Table */}
-      {overview.findings.length > 0 && (
+      {findings.length > 0 && (
         <div className="panel p-4">
           <div className="mb-3 tech-label">Graph Findings</div>
-          <GraphFindingsTable findings={overview.findings} />
+          <GraphFindingsTable findings={findings} />
         </div>
       )}
     </div>

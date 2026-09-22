@@ -302,7 +302,7 @@ class SentinelService:
     def graph_overview(self) -> dict:
         graph = self.build_graph()
         entity_counts = {}
-        for node_type in ["employee", "device", "ip_address", "location", "file", "department", "attack_run"]:
+        for node_type in ["employee", "event", "device", "ip_address", "location", "file", "department", "attack_run"]:
             entity_counts[node_type] = len(graph.nodes_by_type(node_type))
         high_severity = sum(1 for f in graph.findings if f.severity in ("high", "critical"))
         return {
@@ -311,10 +311,8 @@ class SentinelService:
             "entity_counts": entity_counts,
             "finding_count": len(graph.findings),
             "high_severity_finding_count": high_severity,
-            "findings": graph.findings,
-            "nodes": list(graph.nodes.values()),
-            "edges": graph.edges,
         }
+
 
     def graph_entity_detail(self, entity_type: str, entity_id: str) -> dict | None:
         graph = self.build_graph()
@@ -452,8 +450,10 @@ class SentinelService:
         if max_nodes and len(nodes) > max_nodes:
             nodes.sort(key=lambda n: (0 if n.node_type != "event" else 1, n.node_id))
             nodes = nodes[:max_nodes]
-            node_ids = {n.node_id for n in nodes}
-            edges = [e for e in edges if e.source_id in node_ids and e.target_id in node_ids]
+
+        # Strict safety check: never return an edge whose source or target node is missing
+        node_ids = {n.node_id for n in nodes}
+        edges = [e for e in edges if e.source_id in node_ids and e.target_id in node_ids]
 
         return {
             "nodes": nodes,

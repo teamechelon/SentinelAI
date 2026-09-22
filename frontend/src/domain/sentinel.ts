@@ -438,10 +438,8 @@ export interface GraphOverview {
   entityCounts: Record<string, number>;
   findingCount: number;
   highSeverityFindingCount: number;
-  nodes: GraphNode[];
-  edges: GraphEdge[];
-  findings: GraphFinding[];
 }
+
 
 export interface GraphEntityDetail {
   entity: GraphNode;

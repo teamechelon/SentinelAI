@@ -21,11 +21,18 @@ def test_graph_overview_returns_counts(client):
     assert "nodeCount" in data
     assert "edgeCount" in data
 
-def test_graph_overview_has_nodes_and_edges(client):
+def test_graph_overview_is_summary_only(client):
     response = client.get("/api/graph/overview")
     data = response.json()
-    assert len(data["nodes"]) > 0
-    assert len(data["edges"]) > 0
+    assert data["nodeCount"] > 0
+    assert data["edgeCount"] > 0
+    assert "entityCounts" in data
+    assert "event" in data["entityCounts"]
+    assert "employee" in data["entityCounts"]
+    assert "nodes" not in data
+    assert "edges" not in data
+    assert "findings" not in data
+
 
 def test_graph_entity_detail_for_employee(client):
     response = client.get("/api/graph/entities/employee/EMP-001")

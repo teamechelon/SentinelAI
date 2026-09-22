@@ -156,6 +156,32 @@ export const fixtureDataSource: SentinelDataSource = {
   getModelEvaluation: async () => null,
   getQuantumEvaluation: async () => ({ status: "unavailable", reason: "Evaluation execution requires SENTINEL_DATA_SOURCE=http.", affectsProductionRisk: false }),
   getGraphOverview: async (): Promise<GraphOverview> => {
+    const employeesCount = data.employees.length;
+    const activityCount = data.activity.length;
+    const devicesSet = new Set(data.activity.map(a => a.deviceId).filter(Boolean));
+    const ipSet = new Set(data.activity.map(a => a.ipAddress).filter(Boolean));
+    const deptSet = new Set(data.employees.map(e => e.department).filter(Boolean));
+
+    const totalNodes = employeesCount + activityCount + devicesSet.size + ipSet.size + deptSet.size;
+
+    return {
+      nodeCount: totalNodes,
+      edgeCount: activityCount * 2 + employeesCount,
+      entityCounts: {
+        employee: employeesCount,
+        event: activityCount,
+        device: devicesSet.size,
+        ip_address: ipSet.size,
+        location: 0,
+        file: 0,
+        department: deptSet.size,
+        attack_run: 0,
+      },
+      findingCount: 0,
+      highSeverityFindingCount: 0,
+    };
+  },
+  getGraphData: async (): Promise<GraphData> => {
     const nodes: GraphNode[] = [];
     const edges: GraphEdge[] = [];
     const nodeSet = new Set<string>();
@@ -187,21 +213,9 @@ export const fixtureDataSource: SentinelDataSource = {
       }
     }
 
-    return {
-      nodeCount: nodes.length,
-      edgeCount: edges.length,
-      entityCounts: {},
-      findingCount: 0,
-      highSeverityFindingCount: 0,
-      nodes,
-      edges,
-      findings: [],
-    };
+    return { nodes, edges, findings: [] };
   },
-  getGraphData: async (): Promise<GraphData> => {
-    const overview = await fixtureDataSource.getGraphOverview();
-    return { nodes: overview.nodes, edges: overview.edges, findings: overview.findings };
-  },
+
   getGraphEntityDetail: async (): Promise<GraphEntityDetail | null> => null,
   getGraphEventContext: async (): Promise<GraphEventContext | null> => null,
   getGraphAttackRunContext: async (): Promise<GraphAttackRunContext | null> => null,

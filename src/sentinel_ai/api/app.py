@@ -379,10 +379,8 @@ def create_app(database_path: str | Path | None = None) -> FastAPI:
             entity_counts=data["entity_counts"],
             finding_count=data["finding_count"],
             high_severity_finding_count=data["high_severity_finding_count"],
-            nodes=[graph_node(n) for n in data["nodes"]],
-            edges=[graph_edge(e) for e in data["edges"]],
-            findings=[graph_finding(f) for f in data["findings"]],
         )
+
 
     @app.get("/api/graph/entities/{entity_type}/{entity_id:path}")
     def graph_entity_detail(entity_type: str, entity_id: str, service: Service) -> GraphEntityDetailDto:

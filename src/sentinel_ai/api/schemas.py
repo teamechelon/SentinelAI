@@ -365,9 +365,7 @@ class GraphOverviewDto(ApiModel):
     entity_counts: dict[str, int]
     finding_count: int
     high_severity_finding_count: int
-    nodes: list[GraphNodeDto]
-    edges: list[GraphEdgeDto]
-    findings: list[GraphFindingDto]
+
 
 class GraphEntityDetailDto(ApiModel):
     entity: GraphNodeDto
