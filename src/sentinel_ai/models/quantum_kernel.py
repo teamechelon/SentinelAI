@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict
 from functools import lru_cache
 from importlib.metadata import version
 from math import pi
@@ -21,6 +20,25 @@ from sentinel_ai.models.isolation_forest import IsolationForestDetector
 
 
 QUANTUM_FEATURES = ("personal_deviation", "peer_deviation", "login_hour", "combined_novelty")
+
+
+def _assessment_document(item: AnomalyAssessment) -> dict[str, Any]:
+    """Serialize one benchmark row using the public frontend/API contract."""
+
+    return {
+        "eventId": item.event_id,
+        "scenario": item.scenario,
+        "expectedAnomaly": item.expected_anomaly,
+        "classicalScore": item.classical_score,
+        "quantumScore": item.quantum_score,
+        "personalDeviation": item.personal_deviation,
+        "peerDeviation": item.peer_deviation,
+        "classicalStatus": item.classical_status,
+        "quantumStatus": item.quantum_status,
+        "agreement": item.agreement,
+        "confidence": item.confidence,
+        "novelty": item.novelty,
+    }
 
 
 def _novelty(features: FeatureVector) -> dict[str, float]:
@@ -107,10 +125,11 @@ def evaluate_quantum_kernel() -> dict[str, Any]:
             "configuration": {"randomSeed": config.RANDOM_SEED, "shots": 256, "qubits": 4, "features": list(QUANTUM_FEATURES), "featureMap": "ZZFeatureMap", "repetitions": 2, "entanglement": "linear", "trainingRows": len(quantum_training), "normalTestRows": 8, "anomalyTestRows": 8, "oneClassNu": 0.1},
             "metrics": classification_metrics(labels.tolist(), predictions.tolist()),
             "runtimeSeconds": round(perf_counter() - started, 3),
-            "assessments": [asdict(item) for item in assessment_rows],
+            "assessments": [_assessment_document(item) for item in assessment_rows],
             "affectsProductionRisk": False,
             "limitations": [
                 "This deliberately small synthetic benchmark is not evidence of quantum advantage.",
+                "The quantum kernel and production Isolation Forest use different feature representations; their agreement is descriptive, not a like-for-like model comparison.",
                 "Shot-based kernel estimates vary within the fixed simulator configuration.",
                 "Quantum score is signed kernel-model novelty, not a probability or final risk value.",
                 "Confidence is intentionally unavailable because this benchmark is not calibrated.",

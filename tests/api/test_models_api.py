@@ -15,3 +15,9 @@ def test_model_reports_are_exposed_without_risk_integration(tmp_path) -> None:
     assert quantum.status_code == 200
     assert quantum.json()["status"] == "ready"
     assert quantum.json()["affectsProductionRisk"] is False
+    assessment = quantum.json()["assessments"][0]
+    assert assessment["eventId"]
+    assert "expectedAnomaly" in assessment
+    assert "classicalScore" in assessment
+    assert "quantumScore" in assessment
+    assert "event_id" not in assessment

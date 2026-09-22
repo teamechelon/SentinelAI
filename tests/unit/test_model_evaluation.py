@@ -38,5 +38,7 @@ def test_quantum_kernel_is_real_small_sample_and_never_changes_risk() -> None:
     assert report["configuration"]["trainingRows"] == 16
     assert report["versions"]["qiskit"]
     assert len(report["assessments"]) == 16
+    assert all(item["eventId"] for item in report["assessments"])
     assert all(item["confidence"] is None for item in report["assessments"])
     assert all(value >= 0 for item in report["assessments"] for value in item["novelty"].values())
+    assert any("different feature representations" in limitation for limitation in report["limitations"])
