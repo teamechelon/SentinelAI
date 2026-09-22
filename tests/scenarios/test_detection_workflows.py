@@ -106,6 +106,42 @@ def test_legitimate_travel_reduces_location_false_positive(service) -> None:
     assert result.risk_level == "Low"
 
 
+@pytest.mark.parametrize(
+    ("scenario", "expected_score", "expected_level"),
+    [
+        ("normal_login", 2.78, "Low"),
+        ("unknown_device_login", 14.78, "Low"),
+        ("unusual_location_login", 17.78, "Low"),
+        ("impossible_travel", 52.78, "Medium"),
+        ("brute_force_attempt", 63.11, "High"),
+        ("bulk_download", 64.44, "High"),
+        ("sensitive_file_access", 35.19, "Medium"),
+        ("privilege_escalation", 32.78, "Medium"),
+        ("combined_account_compromise", 100.0, "Critical"),
+        ("legitimate_travel", 2.78, "Low"),
+    ],
+)
+def test_peer_evidence_does_not_change_existing_risk_outputs(service, scenario, expected_score, expected_level) -> None:
+    result = simulate(service, scenario)
+
+    assert result.final_risk_score == expected_score
+    assert result.risk_level == expected_level
+    assert result.behavioural_assessment is not None
+
+
+def test_structured_assessment_can_be_recomputed_for_a_persisted_event(service) -> None:
+    result = simulate(service, "unknown_device_login")
+
+    live = result.behavioural_assessment
+    recomputed = service.behavioural_assessment(result.event_id)
+
+    assert live == recomputed
+    assert recomputed.personal_deviation is not None
+    assert recomputed.peer_deviation is not None
+    assert {signal.signal_name for signal in recomputed.personal_signals} >= {"login_hour", "location", "device"}
+    assert recomputed.to_record()["peer_group"]["department"]
+
+
 def test_simulation_is_persisted_with_full_explanation(service) -> None:
     result = simulate(service, "privilege_escalation")
     row = next(row for row in service.detection_rows() if row["event_id"] == result.event_id)

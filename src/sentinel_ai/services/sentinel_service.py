@@ -9,10 +9,19 @@ from pathlib import Path
 from uuid import uuid4
 
 from sentinel_ai import config
-from sentinel_ai.baselines import build_profiles
-from sentinel_ai.demo import build_scenario_event, generate_dataset
-from sentinel_ai.detection import combine_risk, evaluate_rules
-from sentinel_ai.domain import ActivityEvent, Alert, BehaviourProfile, DetectionResult, Employee, FeatureVector
+from sentinel_ai.baselines import build_behavioural_assessment, build_profiles
+from sentinel_ai.demo import build_attack_sequence, build_scenario_event, generate_dataset
+from sentinel_ai.detection import analyze_sequences, combine_risk, evaluate_rules
+from sentinel_ai.domain import (
+    ActivityEvent,
+    Alert,
+    BehaviouralAssessment,
+    BehaviourProfile,
+    DetectionResult,
+    Employee,
+    FeatureVector,
+    SimulationRun,
+)
 from sentinel_ai.features import build_feature_vector
 from sentinel_ai.models import IsolationForestDetector
 from sentinel_ai.storage import SentinelDatabase
@@ -57,7 +66,7 @@ class SentinelService:
         self.database.upsert_profiles(list(profiles.values()))
         training_features = self._feature_sequence(events, profiles, training_event_ids)
         self.detector.fit(training_features)
-        self._detect_seed_events(events, profiles)
+        self._detect_seed_events(events, profiles, employees)
 
     def _train_from_database(self) -> None:
         events = self.database.list_activity_events()
@@ -92,12 +101,26 @@ class SentinelService:
                 previous_login[event.employee_id] = event
         return features
 
-    def _detect_seed_events(self, events: list[ActivityEvent], profiles: dict[str, BehaviourProfile]) -> None:
+    def _detect_seed_events(
+        self,
+        events: list[ActivityEvent],
+        profiles: dict[str, BehaviourProfile],
+        employees: list[Employee],
+    ) -> None:
         previous_login: dict[str, ActivityEvent] = {}
+        assessment_history: list[ActivityEvent] = []
+        employees_by_id = {employee.employee_id: employee for employee in employees}
         for event in sorted(events, key=lambda item: (item.timestamp, item.event_id)):
             profile = profiles[event.employee_id]
-            result = self._evaluate(event, profile, previous_login.get(event.employee_id))
+            assessment = build_behavioural_assessment(
+                event,
+                employees_by_id[event.employee_id],
+                employees,
+                assessment_history,
+            )
+            result = self._evaluate(event, profile, previous_login.get(event.employee_id), assessment)
             self._persist_result(event, result)
+            assessment_history.append(event)
             if event.activity_type == "login" and event.login_success:
                 previous_login[event.employee_id] = event
 
@@ -106,11 +129,13 @@ class SentinelService:
         event: ActivityEvent,
         profile: BehaviourProfile,
         previous_login: ActivityEvent | None,
+        assessment: BehaviouralAssessment | None = None,
     ) -> DetectionResult:
         features = build_feature_vector(event, profile, previous_login)
         rules = evaluate_rules(event, profile, features)
         model_score = self.detector.score(features)
-        return combine_risk(event, features, rules, model_score)
+        result = combine_risk(event, features, rules, model_score)
+        return replace(result, behavioural_assessment=assessment)
 
     def _persist_result(self, event: ActivityEvent, result: DetectionResult) -> None:
         self.database.insert_detection(result)
@@ -131,18 +156,40 @@ class SentinelService:
             )
 
     def detect_and_persist(self, event: ActivityEvent) -> DetectionResult:
+        employee = self.database.get_employee(event.employee_id)
+        if employee is None:
+            raise KeyError(f"Unknown employee: {event.employee_id}")
         profile = self.database.get_profile(event.employee_id)
         if profile is None:
-            employee = self.database.get_employee(event.employee_id)
-            if employee is None:
-                raise KeyError(f"Unknown employee: {event.employee_id}")
             profile = build_profiles([employee], [])[employee.employee_id]
             self.database.upsert_profiles([profile])
         previous_login = self.database.previous_successful_login(event.employee_id, event.timestamp)
+        assessment = build_behavioural_assessment(
+            event,
+            employee,
+            self.database.list_employees(),
+            self.database.list_activity_events(),
+        )
         self.database.insert_events([event])
-        result = self._evaluate(event, profile, previous_login)
+        result = self._evaluate(event, profile, previous_login, assessment)
         self._persist_result(event, result)
         return result
+
+    def behavioural_assessment(self, event_id: str) -> BehaviouralAssessment:
+        """Recompute structured personal/peer evidence for a persisted event."""
+
+        event = self.database.get_event(event_id)
+        if event is None:
+            raise KeyError(f"Unknown event: {event_id}")
+        employee = self.database.get_employee(event.employee_id)
+        if employee is None:
+            raise KeyError(f"Unknown employee: {event.employee_id}")
+        return build_behavioural_assessment(
+            event,
+            employee,
+            self.database.list_employees(),
+            self.database.list_activity_events(),
+        )
 
     def simulate(
         self,
@@ -165,6 +212,58 @@ class SentinelService:
             self.detect_and_persist(anchor)
 
         return self.detect_and_persist(event)
+
+    def run_attack_lab(
+        self,
+        scenario: str,
+        employee_id: str,
+        start_time: datetime,
+        intensity: str = "standard",
+    ) -> SimulationRun:
+        employee = self.database.get_employee(employee_id)
+        if employee is None:
+            raise KeyError(f"Unknown employee: {employee_id}")
+        timestamp = start_time.astimezone(timezone.utc).replace(microsecond=0)
+        simulation_id = f"RUN-{uuid4().hex[:12].upper()}"
+        events = build_attack_sequence(employee, scenario, timestamp, simulation_id, intensity)
+        self.database.create_simulation_run(simulation_id, employee_id, scenario, timestamp, intensity)
+        try:
+            for index, event in enumerate(events):
+                self.detect_and_persist(event)
+                self.database.link_simulation_event(simulation_id, event.event_id, index)
+            self.database.update_simulation_status(simulation_id, "complete")
+        except Exception:
+            self.database.update_simulation_status(simulation_id, "failed")
+            raise
+        return SimulationRun(
+            simulation_id=simulation_id,
+            employee_id=employee_id,
+            scenario=scenario,
+            start_time=timestamp,
+            intensity=intensity,
+            status="complete",
+            created_at=datetime.now(timezone.utc),
+            event_ids=tuple(event.event_id for event in events),
+            findings=analyze_sequences(events),
+        )
+
+    def simulation_run(self, simulation_id: str) -> SimulationRun:
+        row = self.database.get_simulation_run(simulation_id)
+        if row is None:
+            raise KeyError(f"Unknown simulation: {simulation_id}")
+        events = [self.database.get_event(event_id) for event_id in row["event_ids"]]
+        available = [event for event in events if event is not None]
+        return SimulationRun(
+            simulation_id=str(row["simulation_id"]),
+            employee_id=str(row["employee_id"]),
+            scenario=str(row["scenario"]),
+            start_time=datetime.fromisoformat(str(row["start_time"])),
+            intensity=str(row["intensity"]),
+            status=str(row["status"]),
+            created_at=datetime.fromisoformat(str(row["created_at"])),
+            event_ids=tuple(str(event_id) for event_id in row["event_ids"]),
+            findings=analyze_sequences(available),
+        )
 
     def update_alert_status(self, alert_id: str, status: str) -> None:
         self.database.update_alert_status(alert_id, status)

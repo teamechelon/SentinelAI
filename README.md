@@ -2,7 +2,7 @@
 
 SentinelAI is an explainable behavioural threat-detection prototype for identity, device, privilege, and file-activity events. The initial architecture is a local modular monolith using Python, Streamlit, SQLite, and scikit-learn.
 
-The repository contains a working local prototype with deterministic synthetic data, personal behaviour profiles, feature engineering, Isolation Forest anomaly ranking, explainable rules, hybrid risk scoring, SQLite persistence, simulations, tests, and a Streamlit SOC interface.
+The repository contains a working local prototype with deterministic synthetic data, personal and department/role peer behaviour profiles, feature engineering, Isolation Forest anomaly ranking, explainable rules, hybrid risk scoring, SQLite persistence, simulations, tests, and a Streamlit SOC interface.
 
 ## Quick start
 

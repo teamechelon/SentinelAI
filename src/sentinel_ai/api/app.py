@@ -1,0 +1,366 @@
+"""Thin FastAPI layer over SentinelAI domain and application services."""
+
+from __future__ import annotations
+
+from collections import Counter
+from contextlib import asynccontextmanager
+from datetime import datetime
+import os
+from pathlib import Path
+from typing import Annotated, Literal
+
+from fastapi import Depends, FastAPI, HTTPException, Query, Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
+
+from sentinel_ai import config
+from sentinel_ai.api.schemas import (
+    AttackLabRunDto,
+    AttackLabRunRequest,
+    AttackLabScenarioDto,
+    ActivityPageDto,
+    ModelMetadataDto,
+    OverviewDto,
+    PageMeta,
+    SystemCountsDto,
+    SystemPartDto,
+    SystemStatusDto,
+    OperatorDto,
+    ThreatPageDto,
+    ThreatSummaryDto,
+    UserDetailDto,
+    UserPageDto,
+    UserSummaryDto,
+    SequenceFindingDto,
+)
+from sentinel_ai.api.serializers import (
+    activity,
+    behavioural_assessment,
+    detection_history,
+    overview,
+    peer_baseline,
+    peer_group,
+    personal_baseline,
+    threat,
+)
+from sentinel_ai.baselines import build_peer_profile, build_profiles, peer_group_key
+from sentinel_ai.demo import ATTACK_LAB_SCENARIOS
+from sentinel_ai.services import SentinelService
+from sentinel_ai.models import evaluate_existing_models, evaluate_quantum_kernel
+
+
+def _page_meta(page: int, page_size: int, total: int) -> PageMeta:
+    return PageMeta(page=page, page_size=page_size, total=total, total_pages=max(1, (total + page_size - 1) // page_size))
+
+
+def _service(request: Request) -> SentinelService:
+    return request.app.state.service
+
+
+Service = Annotated[SentinelService, Depends(_service)]
+
+
+def create_app(database_path: str | Path | None = None) -> FastAPI:
+    resolved_database_path = Path(database_path or os.environ.get("SENTINEL_DATABASE_PATH", config.DEFAULT_DATABASE_PATH))
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        service = SentinelService(resolved_database_path)
+        service.initialize()
+        app.state.service = service
+        yield
+
+    app = FastAPI(title="SentinelAI API", version="0.1.0", lifespan=lifespan)
+
+    @app.exception_handler(HTTPException)
+    async def http_error(_request: Request, error: HTTPException) -> JSONResponse:
+        detail = error.detail if isinstance(error.detail, dict) else {"code": "request_error", "message": str(error.detail)}
+        return JSONResponse(status_code=error.status_code, content={"error": detail})
+
+    @app.exception_handler(RequestValidationError)
+    async def validation_error(_request: Request, error: RequestValidationError) -> JSONResponse:
+        return JSONResponse(
+            status_code=422,
+            content={"error": {"code": "validation_error", "message": "Request validation failed.", "details": error.errors()}},
+        )
+
+    @app.get("/api/system/status", response_model=SystemStatusDto)
+    def system_status(service: Service) -> SystemStatusDto:
+        return SystemStatusDto(
+            mode="LIVE",
+            data=SystemPartDto(label="LIVE SQLITE", status="ready"),
+            database=SystemPartDto(label="SQLite", status="ready"),
+            model=SystemPartDto(label="Isolation Forest", status=service.model_status),
+            operator=OperatorDto(label="LOCAL ANALYST", session="API"),
+            counts=SystemCountsDto(
+                employees=len(service.employees()),
+                activity_events=len(service.event_rows()),
+                detections=len(service.detection_rows()),
+                alerts=len(service.alert_rows()),
+            ),
+        )
+
+    @app.get("/api/overview", response_model=OverviewDto)
+    def operations_overview(service: Service) -> OverviewDto:
+        return overview(service.detection_rows(), service.alert_rows())
+
+    @app.get("/api/activity", response_model=ActivityPageDto)
+    def list_activity(
+        service: Service,
+        start: datetime | None = None,
+        end: datetime | None = None,
+        employee_id: str | None = None,
+        department: str | None = None,
+        activity_type: str | None = None,
+        scenario: str | None = None,
+        risk_level: str | None = None,
+        anomalous_only: bool = False,
+        q: str | None = None,
+        sort: Literal["timestamp", "risk_score", "employee", "activity_type"] = "timestamp",
+        direction: Literal["asc", "desc"] = "desc",
+        page: Annotated[int, Query(ge=1)] = 1,
+        page_size: Annotated[int, Query(ge=1, le=100)] = 50,
+    ) -> ActivityPageDto:
+        rows = service.event_rows()
+        query = q.strip().lower() if q else None
+
+        def matches(row: dict[str, object]) -> bool:
+            timestamp = datetime.fromisoformat(str(row["timestamp"]))
+            if start and timestamp < start:
+                return False
+            if end and timestamp > end:
+                return False
+            if employee_id and row["employee_id"] != employee_id:
+                return False
+            if department and row["department"] != department:
+                return False
+            if activity_type and row["activity_type"] != activity_type:
+                return False
+            if scenario and row["scenario"] != scenario:
+                return False
+            if risk_level and row.get("risk_level") != risk_level:
+                return False
+            percentile = row.get("anomaly_percentile")
+            if anomalous_only and (percentile is None or float(percentile) < 95.0):
+                return False
+            if query:
+                searchable = (
+                    row["event_id"], row["employee_id"], row["employee_name"], row["department"],
+                    row["activity_type"], row["scenario"], row["device_id"], row["ip_address"],
+                    row["city"], row["country"], row["file_name"],
+                )
+                if not any(query in str(value).lower() for value in searchable):
+                    return False
+            return True
+
+        filtered = [row for row in rows if matches(row)]
+        sorters = {
+            "timestamp": lambda row: str(row["timestamp"]),
+            "risk_score": lambda row: float(row.get("final_risk_score") or -1),
+            "employee": lambda row: str(row["employee_name"]).lower(),
+            "activity_type": lambda row: str(row["activity_type"]),
+        }
+        filtered.sort(key=sorters[sort], reverse=direction == "desc")
+        total = len(filtered)
+        offset = (page - 1) * page_size
+        return ActivityPageDto(items=[activity(row) for row in filtered[offset:offset + page_size]], page=_page_meta(page, page_size, total))
+
+    @app.get("/api/threats", response_model=ThreatPageDto)
+    def list_threats(
+        service: Service,
+        q: str | None = None,
+        risk: str | None = None,
+        status: str | None = None,
+        page: Annotated[int, Query(ge=1)] = 1,
+        page_size: Annotated[int, Query(ge=1, le=250)] = 100,
+    ) -> ThreatPageDto:
+        query = q.strip().lower() if q else None
+        items = [threat(row) for row in service.alert_rows()]
+        items = [
+            item for item in items
+            if (not risk or risk == "All" or item.risk_level == risk)
+            and (not status or status == "All" or item.status == status)
+            and (
+                not query
+                or any(query in value.lower() for value in (
+                    item.alert_id, item.employee_id, item.employee_name, item.department,
+                    item.title, item.story, item.primary_evidence.code if item.primary_evidence else "",
+                ))
+            )
+        ]
+        items.sort(key=lambda item: (item.risk_score, item.occurred_at, item.alert_id), reverse=True)
+        total = len(items)
+        offset = (page - 1) * page_size
+        return ThreatPageDto(items=items[offset:offset + page_size], page=_page_meta(page, page_size, total))
+
+    @app.get("/api/threats/{alert_id}", response_model=ThreatSummaryDto)
+    def threat_detail(alert_id: str, service: Service) -> ThreatSummaryDto:
+        row = service.database.get_alert_row(alert_id)
+        if row is None:
+            raise HTTPException(404, {"code": "alert_not_found", "message": f"Unknown alert: {alert_id}"})
+        return threat(row)
+
+    @app.get("/api/users", response_model=UserPageDto)
+    def list_users(
+        service: Service,
+        q: str | None = None,
+        department: str | None = None,
+        role: str | None = None,
+        sort: Literal["name", "department", "risk", "activity"] = "name",
+        direction: Literal["asc", "desc"] = "asc",
+        page: Annotated[int, Query(ge=1)] = 1,
+        page_size: Annotated[int, Query(ge=1, le=100)] = 50,
+    ) -> UserPageDto:
+        employees = service.employees()
+        profiles = service.database.list_profiles()
+        events = service.event_rows()
+        alerts = service.alert_rows()
+        detections = service.detection_rows()
+        event_counts = Counter(str(row["employee_id"]) for row in events)
+        alert_counts = Counter(str(row["employee_id"]) for row in alerts)
+        latest_detection: dict[str, dict[str, object]] = {}
+        for row in detections:
+            latest_detection.setdefault(str(row["employee_id"]), row)
+        query = q.strip().lower() if q else None
+        items: list[UserSummaryDto] = []
+        for employee in employees:
+            if department and employee.department != department:
+                continue
+            if role and employee.normal_privilege != role:
+                continue
+            if query and not any(query in value.lower() for value in (employee.employee_id, employee.employee_name, employee.department, employee.normal_privilege)):
+                continue
+            profile = profiles.get(employee.employee_id) or build_profiles([employee], [])[employee.employee_id]
+            latest = latest_detection.get(employee.employee_id)
+            key = peer_group_key(employee)
+            items.append(UserSummaryDto(
+                employee_id=employee.employee_id,
+                employee_name=employee.employee_name,
+                department=employee.department,
+                role=employee.normal_privilege,
+                peer_group=peer_group(key.department, key.role),
+                profile_confidence=profile.confidence,
+                history_event_count=profile.history_event_count,
+                activity_count=event_counts[employee.employee_id],
+                alert_count=alert_counts[employee.employee_id],
+                latest_risk_score=float(latest["final_risk_score"]) if latest else None,
+                latest_risk_level=str(latest["risk_level"]) if latest else None,
+            ))
+        sorters = {
+            "name": lambda item: item.employee_name.lower(),
+            "department": lambda item: (item.department, item.employee_name),
+            "risk": lambda item: item.latest_risk_score if item.latest_risk_score is not None else -1,
+            "activity": lambda item: item.activity_count,
+        }
+        items.sort(key=sorters[sort], reverse=direction == "desc")
+        total = len(items)
+        offset = (page - 1) * page_size
+        return UserPageDto(items=items[offset:offset + page_size], page=_page_meta(page, page_size, total))
+
+    @app.get("/api/users/{employee_id}", response_model=UserDetailDto)
+    def user_detail(employee_id: str, service: Service) -> UserDetailDto:
+        employee = service.database.get_employee(employee_id)
+        if employee is None:
+            raise HTTPException(404, {"code": "employee_not_found", "message": f"Unknown employee: {employee_id}"})
+        profile = service.database.get_profile(employee_id) or build_profiles([employee], [])[employee_id]
+        employees = service.employees()
+        events = service.database.list_activity_events()
+        key = peer_group_key(employee)
+        peers = [item for item in employees if item.employee_id != employee_id and peer_group_key(item) == key]
+        peer_profile = build_peer_profile(key, peers, events)
+        employee_events = [event for event in events if event.employee_id == employee_id]
+        latest_event = max(employee_events, key=lambda item: (item.timestamp, item.event_id)) if employee_events else None
+        assessment = service.behavioural_assessment(latest_event.event_id) if latest_event else None
+        detection_rows = service.detection_rows(employee_id)[:50]
+        activity_rows = [row for row in service.event_rows() if row["employee_id"] == employee_id][:50]
+        alert_rows = [row for row in service.alert_rows() if row["employee_id"] == employee_id][:50]
+        return UserDetailDto(
+            employee_id=employee.employee_id,
+            employee_name=employee.employee_name,
+            department=employee.department,
+            role=employee.normal_privilege,
+            home_city=employee.home_city,
+            home_country=employee.home_country,
+            peer_group=peer_group(key.department, key.role),
+            personal_baseline=personal_baseline(profile),
+            peer_baseline=peer_baseline(peer_profile),
+            current_assessment=behavioural_assessment(assessment) if assessment else None,
+            risk_history=[detection_history(row) for row in detection_rows],
+            activity_history=[activity(row) for row in activity_rows],
+            related_alerts=[threat(row) for row in alert_rows],
+        )
+
+    @app.get("/api/models", response_model=list[ModelMetadataDto])
+    def models(service: Service) -> list[ModelMetadataDto]:
+        return [ModelMetadataDto(
+            name="Isolation Forest",
+            implementation="sklearn.ensemble.IsolationForest",
+            version=config.MODEL_VERSION,
+            status=service.model_status,
+            feature_schema_version=config.FEATURE_SCHEMA_VERSION,
+            feature_order=list(config.FEATURE_ORDER),
+            training_rows=service.detector.training_row_count,
+            training_scope="Normal history only; final 30% per employee after the persisted baseline split.",
+            estimator_configuration={"n_estimators": 200, "contamination": "auto", "max_samples": "auto", "random_state": config.RANDOM_SEED, "n_jobs": 1},
+            anomaly_definition="Empirical nonconformity percentile against normal training history; not an attack probability.",
+        )]
+
+    @app.get("/api/models/evaluation", response_model=dict[str, object])
+    def model_evaluation() -> dict[str, object]:
+        return evaluate_existing_models()
+
+    @app.get("/api/models/quantum", response_model=dict[str, object])
+    def quantum_evaluation() -> dict[str, object]:
+        return evaluate_quantum_kernel()
+
+    @app.get("/api/attack-lab/scenarios", response_model=list[AttackLabScenarioDto])
+    def attack_lab_scenarios() -> list[AttackLabScenarioDto]:
+        descriptions = {
+            "account_compromise": "Authentication anomaly, unknown-device login, then sensitive access.",
+            "credential_attack": "Failed authentication burst followed by a successful login.",
+            "privilege_abuse": "Successful login, privilege escalation, then sensitive access.",
+            "data_exfiltration": "Sensitive access followed by a bulk or large download.",
+        }
+        counts = {"account_compromise": 3, "credential_attack": 2, "privilege_abuse": 3, "data_exfiltration": 2}
+        return [AttackLabScenarioDto(scenario=key, label=label, event_count=counts[key], description=descriptions[key]) for key, label in ATTACK_LAB_SCENARIOS.items()]
+
+    def run_document(simulation_id: str, service: SentinelService) -> AttackLabRunDto:
+        try:
+            run = service.simulation_run(simulation_id)
+        except KeyError as error:
+            raise HTTPException(404, {"code": "simulation_not_found", "message": str(error).strip("'")}) from error
+        event_rows = {str(row["event_id"]): row for row in service.event_rows()}
+        return AttackLabRunDto(
+            simulation_id=run.simulation_id,
+            employee_id=run.employee_id,
+            scenario=run.scenario,
+            start_time=run.start_time,
+            intensity=run.intensity,
+            status=run.status,
+            created_at=run.created_at,
+            event_ids=list(run.event_ids),
+            findings=[SequenceFindingDto(
+                code=item.code, title=item.title, severity=item.severity, status=item.status,
+                event_ids=list(item.event_ids), window_minutes=item.window_minutes, evidence=list(item.evidence),
+            ) for item in run.findings],
+            events=[activity(event_rows[event_id]) for event_id in run.event_ids if event_id in event_rows],
+        )
+
+    @app.post("/api/attack-lab/runs", response_model=AttackLabRunDto, status_code=201)
+    def create_attack_lab_run(payload: AttackLabRunRequest, service: Service) -> AttackLabRunDto:
+        if payload.scenario not in ATTACK_LAB_SCENARIOS:
+            raise HTTPException(422, {"code": "unknown_scenario", "message": f"Unknown Attack Lab scenario: {payload.scenario}"})
+        try:
+            run = service.run_attack_lab(payload.scenario, payload.employee_id, payload.start_time, payload.intensity)
+        except KeyError as error:
+            raise HTTPException(404, {"code": "employee_not_found", "message": str(error).strip("'")}) from error
+        return run_document(run.simulation_id, service)
+
+    @app.get("/api/attack-lab/runs/{simulation_id}", response_model=AttackLabRunDto)
+    def get_attack_lab_run(simulation_id: str, service: Service) -> AttackLabRunDto:
+        return run_document(simulation_id, service)
+
+    return app
+
+
+app = create_app()

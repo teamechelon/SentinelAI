@@ -1,5 +1,8 @@
 """Synthetic dataset contracts."""
 
+from collections import Counter
+
+from sentinel_ai.baselines import peer_group_key
 from sentinel_ai.demo.generator import SUSPICIOUS_SCENARIOS, generate_dataset, generate_employees
 
 
@@ -47,3 +50,17 @@ def test_events_contain_traceable_required_fields() -> None:
     }
 
     assert required.issubset(event.to_record())
+
+
+def test_seed_population_contains_meaningful_peer_groups() -> None:
+    employees = generate_employees()
+    group_sizes = Counter(peer_group_key(employee) for employee in employees)
+
+    assert max(group_sizes.values()) >= 5
+    assert sum(size >= 2 for size in group_sizes.values()) >= 5
+    engineering_employees = [
+        employee
+        for employee in employees
+        if employee.department == "Engineering" and employee.normal_privilege == "Employee"
+    ]
+    assert len({employee.home_city for employee in engineering_employees}) >= 2

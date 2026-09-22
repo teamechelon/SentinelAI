@@ -1,0 +1,368 @@
+export type RiskLevel = "Low" | "Medium" | "High" | "Critical";
+export type AlertStatus = "New" | "Investigating" | "Resolved" | "False Positive";
+
+export interface EvidenceSummary {
+  code: string;
+  contribution: number;
+  expected: string;
+  observed: string;
+  reason: string;
+}
+
+export interface ThreatSummary {
+  activity: string;
+  alertId: string;
+  createdAt: string;
+  department: string;
+  employeeId: string;
+  employeeName: string;
+  eventId: string;
+  evidenceCount: number;
+  occurredAt: string;
+  primaryEvidence: EvidenceSummary | null;
+  riskLevel: RiskLevel;
+  riskScore: number;
+  status: AlertStatus;
+  story: string;
+  title: string;
+}
+
+export interface RiskPoint { date: string; alertCount: number; averageRisk: number }
+export interface AnomalyPoint { date: string; medianPercentile: number; p95Percentile: number }
+
+export interface SystemStatusSnapshot {
+  mode: string;
+  data: { label: string; status: string };
+  database: { label: string; status: string };
+  model: { label: string; status: string };
+  operator: { label: string; session: string };
+  counts?: SystemCounts;
+}
+
+export interface SystemCounts {
+  employees: number;
+  activityEvents: number;
+  detections: number;
+  alerts: number;
+}
+
+export interface OperationsOverview {
+  activeThreats: Record<Exclude<RiskLevel, "Low">, number>;
+  riskDistribution: Record<RiskLevel, number>;
+  riskActivity: RiskPoint[];
+  anomalyActivity: AnomalyPoint[];
+}
+
+export interface SentinelFixture {
+  fixture: {
+    schemaVersion: "sentinel-demo.v1";
+    source: "sentinelai-python-reference";
+    classification: "development_demo_data";
+    randomSeed: number;
+    timestampPolicy: string;
+    counts: SystemCounts;
+  };
+  system: SystemStatusSnapshot;
+  overview: OperationsOverview;
+  employees: FixtureEmployee[];
+  profiles: PersonalBaseline[];
+  activity: FixtureActivityRecord[];
+  threats: ThreatSummary[];
+  models: ModelMetadata[];
+}
+
+export interface ThreatFilters {
+  q?: string;
+  risk?: RiskLevel | "All";
+  status?: AlertStatus | "All";
+}
+
+export interface PageMeta {
+  page: number;
+  pageSize: number;
+  total: number;
+  totalPages: number;
+}
+
+export interface PageResult<T> {
+  items: T[];
+  page: PageMeta;
+}
+
+export interface ActivityRecord {
+  eventId: string;
+  occurredAt: string;
+  employeeId: string;
+  employeeName: string;
+  department: string;
+  activityType: string;
+  scenario: string;
+  deviceId: string;
+  isKnownDevice: boolean;
+  ipAddress: string;
+  city: string;
+  country: string;
+  resourceName: string | null;
+  resourceSensitivity: string;
+  previousPrivilege: string;
+  currentPrivilege: string;
+  failedLoginCount: number;
+  downloadCount: number;
+  downloadSizeMb: number;
+  riskScore: number | null;
+  riskLevel: RiskLevel | null;
+  anomalyPercentile: number | null;
+  isAnomalous: boolean;
+  alertId: string | null;
+  alertStatus: AlertStatus | null;
+  simulationId: string | null;
+}
+
+export interface FixtureActivityRecord extends Omit<ActivityRecord, "anomalyPercentile" | "isAnomalous" | "simulationId"> {
+  isApprovedTravel: boolean;
+  isSuspicious: boolean;
+  loginSuccess: boolean;
+}
+
+export interface ActivityFilters {
+  q?: string;
+  start?: string;
+  end?: string;
+  employeeId?: string;
+  department?: string;
+  activityType?: string;
+  scenario?: string;
+  riskLevel?: RiskLevel | "All";
+  anomalousOnly?: boolean;
+  sort?: "timestamp" | "risk_score" | "employee" | "activity_type";
+  direction?: "asc" | "desc";
+  page?: number;
+  pageSize?: number;
+}
+
+export interface PeerGroup {
+  department: string;
+  role: string;
+}
+
+export interface UserSummary {
+  employeeId: string;
+  employeeName: string;
+  department: string;
+  role: string;
+  peerGroup: PeerGroup;
+  profileConfidence: number;
+  historyEventCount: number;
+  activityCount: number;
+  alertCount: number;
+  latestRiskScore: number | null;
+  latestRiskLevel: RiskLevel | null;
+}
+
+export interface UserFilters {
+  q?: string;
+  department?: string;
+  role?: string;
+  sort?: "name" | "department" | "risk" | "activity";
+  direction?: "asc" | "desc";
+  page?: number;
+  pageSize?: number;
+}
+
+export interface PersonalBaseline {
+  employeeId?: string;
+  normalLoginStart: number;
+  normalLoginEnd: number;
+  usualCountries: string[];
+  usualCities: string[];
+  knownDevices: string[];
+  averageDownloadCount: number;
+  averageDownloadSizeMb: number;
+  typicalFileSensitivity: string[];
+  normalPrivilege: string;
+  averageFailedLoginCount: number;
+  historyEventCount: number;
+  confidence: number;
+}
+
+export interface PeerBaseline {
+  peerGroup: PeerGroup;
+  memberCount: number;
+  contributingMemberCount: number;
+  normalLoginStart: number | null;
+  normalLoginEnd: number | null;
+  usualCountries: string[];
+  usualCities: string[];
+  knownDevices: string[];
+  averageDownloadCount: number | null;
+  averageDownloadSizeMb: number | null;
+  typicalFileSensitivity: string[];
+  normalPrivilege: string;
+  averageFailedLoginCount: number | null;
+  historyEventCount: number;
+  confidence: number;
+  status: string;
+}
+
+export interface BehaviouralSignal {
+  signalName: string;
+  isUnusual: boolean;
+  observedValue: string;
+  expectedValue: string;
+}
+
+export interface BehaviouralAssessment {
+  eventId: string;
+  employeeId: string;
+  peerGroup: PeerGroup;
+  personalDeviation: number | null;
+  peerDeviation: number | null;
+  personalConfidence: number;
+  peerConfidence: number;
+  personalStatus: string;
+  peerStatus: string;
+  comparisonCase: string;
+  personalSignals: BehaviouralSignal[];
+  peerSignals: BehaviouralSignal[];
+}
+
+export interface DetectionHistory {
+  detectionId: string;
+  eventId: string;
+  occurredAt: string;
+  riskScore: number;
+  riskLevel: RiskLevel;
+  anomalyPercentile: number | null;
+  modelStatus: string;
+}
+
+export interface UserDetail {
+  employeeId: string;
+  employeeName: string;
+  department: string;
+  role: string;
+  homeCity: string;
+  homeCountry: string;
+  peerGroup: PeerGroup;
+  personalBaseline: PersonalBaseline;
+  peerBaseline: PeerBaseline | null;
+  currentAssessment: BehaviouralAssessment | null;
+  riskHistory: DetectionHistory[];
+  activityHistory: ActivityRecord[];
+  relatedAlerts: ThreatSummary[];
+}
+
+export interface FixtureEmployee {
+  employeeId: string;
+  employeeName: string;
+  department: string;
+  homeCountry: string;
+  homeCity: string;
+  knownDevices: string[];
+  normalPrivilege: string;
+}
+
+export interface AttackLabScenario {
+  scenario: string;
+  label: string;
+  eventCount: number;
+  description: string;
+}
+
+export interface SequenceFinding {
+  code: string;
+  title: string;
+  severity: RiskLevel;
+  status: string;
+  eventIds: string[];
+  windowMinutes: number;
+  evidence: string[];
+}
+
+export interface AttackLabRun {
+  simulationId: string;
+  employeeId: string;
+  scenario: string;
+  startTime: string;
+  intensity: "standard" | "elevated";
+  status: string;
+  createdAt: string;
+  eventIds: string[];
+  findings: SequenceFinding[];
+  events: ActivityRecord[];
+}
+
+export interface CreateAttackLabRun {
+  employeeId: string;
+  scenario: string;
+  startTime: string;
+  intensity: "standard" | "elevated";
+}
+
+export interface ModelMetadata {
+  name: string;
+  implementation?: string;
+  status: string;
+  version: string | null;
+  featureSchemaVersion: string | null;
+  featureOrder: string[];
+  trainingRows: number | null;
+  trainingScope: string | null;
+  estimatorConfiguration?: Record<string, string | number>;
+  anomalyDefinition: string | null;
+}
+
+export interface EvaluationMetrics {
+  precision: number;
+  recall: number;
+  f1: number;
+  falsePositiveRate: number;
+  truePositive: number;
+  falsePositive: number;
+  trueNegative: number;
+  falseNegative: number;
+}
+
+export interface EvaluationChannel {
+  name: string;
+  status: string;
+  metrics: EvaluationMetrics;
+  scenarioCoverage: Record<string, { detected: number; total: number; recall: number }>;
+}
+
+export interface ModelEvaluationReport {
+  dataset: { strategy: string; baselineRows: number; trainingRows: number; normalTestRows: number; anomalyTestRows: number; futureDataUsed: boolean };
+  thresholds: { classical: string; rules: string };
+  classical: EvaluationChannel;
+  rules: EvaluationChannel;
+  limitations: string[];
+}
+
+export interface ModelAnomalyAssessment {
+  eventId: string;
+  scenario: string;
+  expectedAnomaly: boolean;
+  classicalScore: number | null;
+  quantumScore: number | null;
+  personalDeviation: number | null;
+  peerDeviation: number | null;
+  classicalStatus: string;
+  quantumStatus: string;
+  agreement: boolean | null;
+  confidence: number | null;
+  novelty: Record<string, number>;
+}
+
+export interface QuantumEvaluationReport {
+  status: string;
+  reason?: string;
+  label?: string;
+  implementation?: string;
+  versions?: Record<string, string>;
+  configuration?: { randomSeed: number; shots: number; qubits: number; features: string[]; featureMap: string; repetitions: number; entanglement: string; trainingRows: number; normalTestRows: number; anomalyTestRows: number; oneClassNu: number };
+  metrics?: EvaluationMetrics;
+  runtimeSeconds?: number;
+  assessments?: ModelAnomalyAssessment[];
+  affectsProductionRisk: boolean;
+  limitations?: string[];
+}

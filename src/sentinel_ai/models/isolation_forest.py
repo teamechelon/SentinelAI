@@ -38,12 +38,18 @@ class IsolationForestDetector:
         )
         self._status = "untrained"
         self._calibration_scores: list[float] = []
+        self._training_row_count = 0
 
     @property
     def status(self) -> str:
         return self._status
 
+    @property
+    def training_row_count(self) -> int:
+        return self._training_row_count
+
     def fit(self, features: Sequence[FeatureVector]) -> str:
+        self._training_row_count = len(features)
         if len(features) < config.MIN_MODEL_TRAINING_ROWS:
             self._status = "insufficient_training_data"
             self._calibration_scores = []

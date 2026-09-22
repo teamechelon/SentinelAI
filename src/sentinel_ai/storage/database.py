@@ -118,6 +118,25 @@ CREATE TABLE IF NOT EXISTS investigation_notes (
     created_at TEXT NOT NULL,
     note TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS simulation_runs (
+    simulation_id TEXT PRIMARY KEY,
+    employee_id TEXT NOT NULL REFERENCES employees(employee_id),
+    scenario TEXT NOT NULL,
+    start_time TEXT NOT NULL,
+    intensity TEXT NOT NULL,
+    status TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS simulation_events (
+    simulation_id TEXT NOT NULL REFERENCES simulation_runs(simulation_id) ON DELETE CASCADE,
+    event_id TEXT NOT NULL UNIQUE REFERENCES activity_events(event_id) ON DELETE CASCADE,
+    sequence_index INTEGER NOT NULL,
+    PRIMARY KEY (simulation_id, sequence_index)
+);
+
+CREATE INDEX IF NOT EXISTS idx_simulation_events_event ON simulation_events(event_id);
 """
 
 
@@ -143,6 +162,8 @@ class SentinelDatabase:
 
     def clear_all(self) -> None:
         with self.connection() as connection:
+            connection.execute("DELETE FROM simulation_events")
+            connection.execute("DELETE FROM simulation_runs")
             connection.execute("DELETE FROM investigation_notes")
             connection.execute("DELETE FROM alerts")
             connection.execute("DELETE FROM detection_results")
@@ -204,6 +225,47 @@ class SentinelDatabase:
                 values,
             )
             return connection.total_changes - before
+
+    def create_simulation_run(
+        self,
+        simulation_id: str,
+        employee_id: str,
+        scenario: str,
+        start_time: datetime,
+        intensity: str,
+        status: str = "running",
+    ) -> None:
+        with self.connection() as connection:
+            connection.execute(
+                "INSERT INTO simulation_runs VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (simulation_id, employee_id, scenario, start_time.isoformat(), intensity, status, datetime.now(timezone.utc).isoformat()),
+            )
+
+    def link_simulation_event(self, simulation_id: str, event_id: str, sequence_index: int) -> None:
+        with self.connection() as connection:
+            connection.execute(
+                "INSERT INTO simulation_events (simulation_id, event_id, sequence_index) VALUES (?, ?, ?)",
+                (simulation_id, event_id, sequence_index),
+            )
+
+    def update_simulation_status(self, simulation_id: str, status: str) -> None:
+        with self.connection() as connection:
+            cursor = connection.execute("UPDATE simulation_runs SET status = ? WHERE simulation_id = ?", (status, simulation_id))
+            if cursor.rowcount == 0:
+                raise KeyError(f"Unknown simulation: {simulation_id}")
+
+    def get_simulation_run(self, simulation_id: str) -> dict[str, Any] | None:
+        with self.connection() as connection:
+            run = connection.execute("SELECT * FROM simulation_runs WHERE simulation_id = ?", (simulation_id,)).fetchone()
+            if run is None:
+                return None
+            event_rows = connection.execute(
+                "SELECT event_id FROM simulation_events WHERE simulation_id = ? ORDER BY sequence_index",
+                (simulation_id,),
+            ).fetchall()
+        result = dict(run)
+        result["event_ids"] = [str(row["event_id"]) for row in event_rows]
+        return result
 
     def upsert_profiles(self, profiles: list[BehaviourProfile]) -> None:
         created_at = datetime.now(timezone.utc).isoformat()
@@ -394,10 +456,11 @@ class SentinelDatabase:
                 SELECT e.*, d.final_risk_score, d.risk_level, d.rule_contribution, d.ai_contribution,
                        d.contextual_contribution, d.triggered_rules_json, d.explanation,
                        d.recommended_response, d.model_status, d.anomaly_percentile,
-                       a.alert_id, a.status AS alert_status
+                       a.alert_id, a.status AS alert_status, se.simulation_id
                 FROM activity_events e
                 LEFT JOIN detection_results d ON d.event_id = e.event_id
                 LEFT JOIN alerts a ON a.event_id = e.event_id
+                LEFT JOIN simulation_events se ON se.event_id = e.event_id
                 ORDER BY e.timestamp DESC
                 """
             ).fetchall()

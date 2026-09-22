@@ -74,6 +74,63 @@ class BehaviourProfile:
     confidence: float
 
 
+@dataclass(frozen=True, order=True)
+class PeerGroupKey:
+    """Stable peer identity derived only from employee metadata."""
+
+    department: str
+    role: str
+
+
+@dataclass(frozen=True)
+class PeerBehaviourProfile:
+    peer_group: PeerGroupKey
+    member_count: int
+    contributing_member_count: int
+    normal_login_start: float | None
+    normal_login_end: float | None
+    usual_countries: tuple[str, ...]
+    usual_cities: tuple[str, ...]
+    known_devices: tuple[str, ...]
+    average_download_count: float | None
+    average_download_size_mb: float | None
+    typical_file_sensitivity: tuple[str, ...]
+    normal_privilege: str
+    average_failed_login_count: float | None
+    history_event_count: int
+    confidence: float
+    status: str
+
+
+@dataclass(frozen=True)
+class BehaviouralSignal:
+    signal_name: str
+    is_unusual: bool
+    observed_value: str
+    expected_value: str
+
+
+@dataclass(frozen=True)
+class BehaviouralAssessment:
+    """Separate personal and peer evidence; neither deviation is a risk score."""
+
+    event_id: str
+    employee_id: str
+    peer_group: PeerGroupKey
+    personal_deviation: float | None
+    peer_deviation: float | None
+    personal_confidence: float
+    peer_confidence: float
+    personal_status: str
+    peer_status: str
+    comparison_case: str
+    personal_signals: tuple[BehaviouralSignal, ...]
+    peer_signals: tuple[BehaviouralSignal, ...]
+
+    def to_record(self) -> dict[str, Any]:
+        return asdict(self)
+
+
 @dataclass(frozen=True)
 class FeatureVector:
     login_hour_deviation: float
@@ -129,6 +186,7 @@ class DetectionResult:
     model_raw_score: float | None
     anomaly_percentile: float | None
     feature_values: dict[str, float] = field(default_factory=dict)
+    behavioural_assessment: BehaviouralAssessment | None = None
 
 
 @dataclass(frozen=True)
@@ -142,4 +200,48 @@ class Alert:
     title: str
     risk_score: float
     risk_level: str
+
+
+@dataclass(frozen=True)
+class SequenceFinding:
+    """Deterministic ordered-event evidence; deliberately separate from risk."""
+
+    code: str
+    title: str
+    severity: str
+    status: str
+    event_ids: tuple[str, ...]
+    window_minutes: int
+    evidence: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class SimulationRun:
+    simulation_id: str
+    employee_id: str
+    scenario: str
+    start_time: datetime
+    intensity: str
+    status: str
+    created_at: datetime
+    event_ids: tuple[str, ...] = ()
+    findings: tuple[SequenceFinding, ...] = ()
+
+
+@dataclass(frozen=True)
+class AnomalyAssessment:
+    """Side-by-side model evidence; scores are not probabilities or final risk."""
+
+    event_id: str
+    scenario: str
+    expected_anomaly: bool
+    classical_score: float | None
+    quantum_score: float | None
+    personal_deviation: float | None
+    peer_deviation: float | None
+    classical_status: str
+    quantum_status: str
+    agreement: bool | None
+    confidence: float | None
+    novelty: dict[str, float]
 
