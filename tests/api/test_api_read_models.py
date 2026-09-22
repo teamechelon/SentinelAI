@@ -24,6 +24,21 @@ def test_system_status_exposes_real_counts(client: TestClient) -> None:
     assert body["counts"] == {"employees": 30, "activityEvents": 1356, "detections": 1356, "alerts": 195}
 
 
+def test_overview_exposes_persisted_visual_aggregates(client: TestClient) -> None:
+    response = client.get("/api/overview")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["totalEvents"] == 1356
+    assert body["averageRiskScore"] > 0
+    assert sum(body["riskDistribution"].values()) == body["totalEvents"]
+    assert body["threatTrend"]
+    assert body["threatTypes"][0]["count"] > 0
+    assert round(sum(body["detectionContribution"].values()), 0) == 100
+    assert len(body["employeesRequiringAttention"]) == 6
+    assert body["departmentRisk"]
+
+
 def test_activity_is_paginated_sorted_and_filterable(client: TestClient) -> None:
     response = client.get(
         "/api/activity",

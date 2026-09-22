@@ -2,18 +2,17 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Activity, Beaker, BrainCircuit, LayoutDashboard, ShieldAlert, Users } from "lucide-react";
+import { Activity, FlaskConical, LayoutDashboard, ShieldAlert, UserRoundSearch } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { plannedModules, type PlannedModuleSlug } from "@/config/navigation";
 import { cn } from "@/lib/utils";
 
 const primary = [
   { href: "/", label: "Overview", icon: LayoutDashboard },
-  { href: "/threats", label: "Threat Queue", icon: ShieldAlert },
-  { href: "/activity", label: "Activity", icon: Activity },
-  { href: "/users", label: "Users", icon: Users },
-  { href: "/attack-lab", label: "Attack Lab", icon: Beaker },
-  { href: "/models", label: "Models", icon: BrainCircuit },
+  { href: "/activity", label: "Activity Monitor", icon: Activity },
+  { href: "/users", label: "User Behaviour", icon: UserRoundSearch },
+  { href: "/attack-lab", label: "Threat Simulation", icon: FlaskConical },
+  { href: "/threats", label: "Alert Investigation", icon: ShieldAlert },
 ];
 const plannedIcons: Record<PlannedModuleSlug, LucideIcon> = {
 };
@@ -21,15 +20,15 @@ const plannedIcons: Record<PlannedModuleSlug, LucideIcon> = {
 export function SidebarNav({ compact = false }: { compact?: boolean }) {
   const pathname = usePathname();
   return (
-    <nav aria-label={compact ? "Mobile navigation" : "Primary navigation"} className={compact ? "flex h-10 items-stretch overflow-x-auto px-3" : "space-y-1 px-2"}>
-      {!compact && <div className="px-3 pb-1 tech-label">Active modules</div>}
+    <nav aria-label={compact ? "Mobile navigation" : "Primary navigation"} className={compact ? "flex h-12 items-stretch overflow-x-auto px-3" : "space-y-1.5 px-3"}>
+      {!compact && <div className="px-3 pb-2 tech-label">Workspace</div>}
       {primary.map(({ href, label, icon: Icon }) => {
         const active = href === "/" ? pathname === "/" : pathname.startsWith(href);
         return (
           <Link key={href} href={href} aria-current={active ? "page" : undefined} className={cn(
-            "flex items-center gap-2 border-transparent text-[12px] font-medium transition-colors focus-visible:z-10",
-            compact ? "border-b-2 px-3" : "h-9 border-l-2 px-3",
-            active ? "border-[var(--accent)] bg-[var(--surface-selected)] text-foreground" : "text-[var(--text-secondary)] hover:bg-[var(--surface-hover)] hover:text-foreground",
+            "flex items-center gap-3 border-transparent text-[12px] font-medium transition-colors focus-visible:z-10",
+            compact ? "border-b-2 px-3" : "h-10 rounded-lg border-l-2 px-3",
+            active ? "border-[var(--accent)] bg-[var(--surface-selected)] font-semibold text-foreground" : "text-[var(--text-secondary)] hover:bg-[var(--surface-hover)] hover:text-foreground",
           )}>
             <Icon aria-hidden="true" className={cn("size-4", active && "text-[var(--accent)]")} />
             <span>{label}</span>

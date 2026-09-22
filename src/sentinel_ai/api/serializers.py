@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import math
-from collections import defaultdict
+from collections import Counter, defaultdict
 from dataclasses import asdict
 from datetime import datetime
 from typing import Any
@@ -15,12 +15,16 @@ from sentinel_ai.api.schemas import (
     BehaviouralAssessmentDto,
     BehaviouralSignalDto,
     DetectionHistoryDto,
+    DetectionContributionDto,
+    EmployeeAttentionDto,
     EvidenceSummaryDto,
     OverviewDto,
+    NamedMetricDto,
     PeerBaselineDto,
     PeerGroupDto,
     PersonalBaselineDto,
     RiskPointDto,
+    ThreatTrendPointDto,
     ThreatSummaryDto,
 )
 from sentinel_ai.domain import BehaviouralAssessment, BehaviourProfile, PeerBehaviourProfile
@@ -147,19 +151,52 @@ def overview(detections: list[dict[str, Any]], alerts: list[dict[str, Any]]) -> 
     daily_risk: dict[str, list[float]] = defaultdict(list)
     daily_alerts: dict[str, int] = defaultdict(int)
     daily_anomaly: dict[str, list[float]] = defaultdict(list)
+    daily_levels: dict[str, Counter[str]] = defaultdict(Counter)
+    rule_counts: Counter[str] = Counter()
+    department_scores: dict[str, list[float]] = defaultdict(list)
+    employee_scores: dict[tuple[str, str, str], list[float]] = defaultdict(list)
+    contribution_totals = {"rule": 0.0, "ai": 0.0, "context": 0.0}
     risk_counts = {level: 0 for level in ("Low", "Medium", "High", "Critical")}
     for row in detections:
         day = datetime.fromisoformat(str(row["timestamp"])).date().isoformat()
         daily_risk[day].append(float(row["final_risk_score"]))
         risk_counts[str(row["risk_level"])] += 1
+        daily_levels[day][str(row["risk_level"])] += 1
+        department_scores[str(row["department"])].append(float(row["final_risk_score"]))
+        employee_scores[(str(row["employee_id"]), str(row["employee_name"]), str(row["department"]))].append(float(row["final_risk_score"]))
+        contribution_totals["rule"] += float(row.get("rule_contribution") or 0)
+        contribution_totals["ai"] += float(row.get("ai_contribution") or 0)
+        contribution_totals["context"] += float(row.get("contextual_contribution") or 0)
+        rule_counts.update(str(rule["rule_name"]) for rule in row.get("triggered_rules", []))
         if float(row["final_risk_score"]) >= config.ALERT_MINIMUM_SCORE:
             daily_alerts[day] += 1
         if row["anomaly_percentile"] is not None:
             daily_anomaly[day].append(float(row["anomaly_percentile"]))
     active = {level: 0 for level in ("Medium", "High", "Critical")}
+    active_by_employee: Counter[str] = Counter()
     for row in alerts:
         if row["status"] not in {"Resolved", "False Positive"}:
             active[str(row["risk_level"])] += 1
+            active_by_employee[str(row["employee_id"])] += 1
+    total_contribution = sum(contribution_totals.values())
+    def contribution_share(key: str) -> float:
+        return round(contribution_totals[key] / total_contribution * 100, 1) if total_contribution else 0.0
+    attention = sorted(
+        (
+            EmployeeAttentionDto(
+                employee_id=employee_id,
+                employee_name=employee_name,
+                department=department,
+                maximum_risk=round(max(scores), 2),
+                average_risk=round(sum(scores) / len(scores), 2),
+                event_count=len(scores),
+                active_alert_count=active_by_employee[employee_id],
+            )
+            for (employee_id, employee_name, department), scores in employee_scores.items()
+        ),
+        key=lambda item: (item.maximum_risk, item.active_alert_count, item.average_risk),
+        reverse=True,
+    )[:6]
     return OverviewDto(
         active_threats=active,
         risk_distribution=risk_counts,
@@ -171,4 +208,33 @@ def overview(detections: list[dict[str, Any]], alerts: list[dict[str, Any]]) -> 
             AnomalyPointDto(date=day, median_percentile=_percentile(values, 0.5), p95_percentile=_percentile(values, 0.95))
             for day, values in sorted(daily_anomaly.items())
         ],
+        total_events=len(detections),
+        active_alerts=sum(active.values()),
+        high_risk_events=risk_counts["High"] + risk_counts["Critical"],
+        critical_threats=risk_counts["Critical"],
+        average_risk_score=round(sum(float(row["final_risk_score"]) for row in detections) / len(detections), 2) if detections else 0.0,
+        threat_trend=[
+            ThreatTrendPointDto(date=day, medium=levels["Medium"], high=levels["High"], critical=levels["Critical"])
+            for day, levels in sorted(daily_levels.items())
+        ],
+        threat_types=[NamedMetricDto(name=humanize(name), count=count) for name, count in rule_counts.most_common()],
+        detection_contribution=DetectionContributionDto(
+            rule_based=contribution_share("rule"),
+            ai_anomaly=contribution_share("ai"),
+            contextual=contribution_share("context"),
+        ),
+        employees_requiring_attention=attention,
+        department_risk=sorted(
+            [
+                NamedMetricDto(
+                    name=department,
+                    count=len(scores),
+                    average_risk=round(sum(scores) / len(scores), 2),
+                    high_critical_count=sum(score >= 50 for score in scores),
+                )
+                for department, scores in department_scores.items()
+            ],
+            key=lambda item: item.average_risk or 0,
+            reverse=True,
+        ),
     )

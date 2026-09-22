@@ -3,7 +3,7 @@ import Link from "next/link";
 
 export function ActivityFilterBar({ values }: { values: Record<string, string> }) {
   return (
-    <form action="/activity" className="panel grid gap-3 p-3 sm:grid-cols-2 xl:grid-cols-[minmax(220px,1fr)_repeat(5,minmax(120px,0.55fr))_auto]">
+    <form action="/activity" className="panel grid gap-3 p-4 sm:grid-cols-2 xl:grid-cols-[minmax(220px,1fr)_repeat(5,minmax(120px,0.55fr))_auto]">
       <label className="relative sm:col-span-2 xl:col-span-1">
         <span className="sr-only">Search activity</span>
         <Search aria-hidden="true" className="absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-[var(--text-muted)]" />
@@ -32,6 +32,10 @@ export function ActivityFilterBar({ values }: { values: Record<string, string> }
         <input type="checkbox" name="anomalousOnly" value="true" defaultChecked={values.anomalousOnly === "true"} className="size-3.5 accent-[var(--accent)]" />
         Persisted anomaly percentile at or above 95
       </label>
+      <div className="grid gap-3 sm:col-span-2 sm:grid-cols-2 xl:col-span-full xl:max-w-xl">
+        <label><span className="mb-1 block text-[9px] font-semibold text-[var(--text-muted)]">From date</span><input type="datetime-local" name="start" defaultValue={values.start} className="control w-full px-3" /></label>
+        <label><span className="mb-1 block text-[9px] font-semibold text-[var(--text-muted)]">To date</span><input type="datetime-local" name="end" defaultValue={values.end} className="control w-full px-3" /></label>
+      </div>
     </form>
   );
 }

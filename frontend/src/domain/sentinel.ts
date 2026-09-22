@@ -29,6 +29,18 @@ export interface ThreatSummary {
 
 export interface RiskPoint { date: string; alertCount: number; averageRisk: number }
 export interface AnomalyPoint { date: string; medianPercentile: number; p95Percentile: number }
+export interface ThreatTrendPoint { date: string; medium: number; high: number; critical: number }
+export interface NamedMetric { name: string; count: number; averageRisk: number | null; highCriticalCount: number | null }
+export interface DetectionContribution { ruleBased: number; aiAnomaly: number; contextual: number }
+export interface EmployeeAttention {
+  employeeId: string;
+  employeeName: string;
+  department: string;
+  maximumRisk: number;
+  averageRisk: number;
+  eventCount: number;
+  activeAlertCount: number;
+}
 
 export interface SystemStatusSnapshot {
   mode: string;
@@ -51,6 +63,16 @@ export interface OperationsOverview {
   riskDistribution: Record<RiskLevel, number>;
   riskActivity: RiskPoint[];
   anomalyActivity: AnomalyPoint[];
+  totalEvents?: number;
+  activeAlerts?: number;
+  highRiskEvents?: number;
+  criticalThreats?: number;
+  averageRiskScore?: number;
+  threatTrend?: ThreatTrendPoint[];
+  threatTypes?: NamedMetric[];
+  detectionContribution?: DetectionContribution;
+  employeesRequiringAttention?: EmployeeAttention[];
+  departmentRisk?: NamedMetric[];
 }
 
 export interface SentinelFixture {

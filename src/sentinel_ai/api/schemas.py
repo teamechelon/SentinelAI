@@ -88,11 +88,51 @@ class AnomalyPointDto(ApiModel):
     p95_percentile: float
 
 
+class ThreatTrendPointDto(ApiModel):
+    date: str
+    medium: int
+    high: int
+    critical: int
+
+
+class NamedMetricDto(ApiModel):
+    name: str
+    count: int
+    average_risk: float | None = None
+    high_critical_count: int | None = None
+
+
+class DetectionContributionDto(ApiModel):
+    rule_based: float
+    ai_anomaly: float
+    contextual: float
+
+
+class EmployeeAttentionDto(ApiModel):
+    employee_id: str
+    employee_name: str
+    department: str
+    maximum_risk: float
+    average_risk: float
+    event_count: int
+    active_alert_count: int
+
+
 class OverviewDto(ApiModel):
     active_threats: dict[str, int]
     risk_distribution: dict[str, int]
     risk_activity: list[RiskPointDto]
     anomaly_activity: list[AnomalyPointDto]
+    total_events: int
+    active_alerts: int
+    high_risk_events: int
+    critical_threats: int
+    average_risk_score: float
+    threat_trend: list[ThreatTrendPointDto]
+    threat_types: list[NamedMetricDto]
+    detection_contribution: DetectionContributionDto
+    employees_requiring_attention: list[EmployeeAttentionDto]
+    department_risk: list[NamedMetricDto]
 
 
 class ActivityRecordDto(ApiModel):

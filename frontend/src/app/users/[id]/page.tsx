@@ -5,6 +5,7 @@ import { ArrowLeft } from "lucide-react";
 import { ActivityTable } from "@/components/activity/activity-table";
 import { SectionHeading } from "@/components/system/section-heading";
 import { ThreatQueue } from "@/components/threats/threat-queue";
+import { UserBehaviourVisuals } from "@/components/users/user-behaviour-visuals";
 import { getSentinelDataSource } from "@/data/data-source";
 
 type Params = Promise<{ id: string }>;
@@ -27,7 +28,8 @@ export default async function UserDetailPage({ params }: { params: Params }) {
       </div>
     </section>
     {user.currentAssessment && <section className="panel p-4"><SectionHeading eyebrow="Latest event" title="Behavioral comparison" description={`${user.currentAssessment.comparisonCase.replaceAll("_", " ")} · personal ${user.currentAssessment.personalStatus} · peer ${user.currentAssessment.peerStatus}`} /><div className="mt-4 grid gap-3 sm:grid-cols-2"><div><span className="tech-label">Personal deviation</span><div className="mt-1 font-mono text-[16px]">{user.currentAssessment.personalDeviation?.toFixed(3) ?? "Unavailable"}</div></div><div><span className="tech-label">Peer deviation</span><div className="mt-1 font-mono text-[16px]">{user.currentAssessment.peerDeviation?.toFixed(3) ?? "Unavailable"}</div></div></div></section>}
-    <section className="space-y-3"><SectionHeading eyebrow="Telemetry" title="Recent activity" description={`${user.activityHistory.length} most recent persisted events`} /><ActivityTable items={user.activityHistory} /></section>
+    <section className="space-y-3"><SectionHeading eyebrow="Behaviour intelligence" title="Normal and observed behaviour" description="Visual comparison built from this employee's persisted baseline and recent activity." /><UserBehaviourVisuals user={user} /></section>
+    <section className="space-y-3"><SectionHeading eyebrow="Telemetry" title="Recent activity" description="The 10 most recent persisted events; use Activity Monitor for the complete dataset." /><ActivityTable items={user.activityHistory.slice(0, 10)} /></section>
     <section className="space-y-3"><SectionHeading eyebrow="Triage" title="Related alerts" description="Persisted alert records for this user" />{user.relatedAlerts.length ? <ThreatQueue threats={user.relatedAlerts} compact /> : <div className="panel p-5 text-[11px] text-[var(--text-muted)]">No persisted alerts for this user.</div>}</section>
   </div>;
 }
