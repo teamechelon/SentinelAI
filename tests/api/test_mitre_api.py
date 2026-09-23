@@ -8,7 +8,7 @@ from sentinel_ai.api import create_app
 
 
 def test_catalog_is_local_versioned_and_camel_case(tmp_path) -> None:
-    with TestClient(create_app(tmp_path / "mitre-catalog.db")) as client:
+    with TestClient(create_app(tmp_path / "mitre-catalog.db", bootstrap_demo_data=True)) as client:
         response = client.get("/api/mitre/catalog")
         assert response.status_code == 200
         document = response.json()
@@ -18,7 +18,7 @@ def test_catalog_is_local_versioned_and_camel_case(tmp_path) -> None:
 
 
 def test_attack_run_report_contains_story_mappings_and_support(tmp_path) -> None:
-    with TestClient(create_app(tmp_path / "mitre-run.db")) as client:
+    with TestClient(create_app(tmp_path / "mitre-run.db", bootstrap_demo_data=True)) as client:
         employee_id = client.get("/api/users?page_size=1").json()["items"][0]["employeeId"]
         run = client.post("/api/attack-lab/runs", json={
             "employeeId": employee_id,
@@ -48,7 +48,7 @@ def test_attack_run_report_contains_story_mappings_and_support(tmp_path) -> None
 
 
 def test_mitre_not_found_errors_and_overview_contract(tmp_path) -> None:
-    with TestClient(create_app(tmp_path / "mitre-errors.db")) as client:
+    with TestClient(create_app(tmp_path / "mitre-errors.db", bootstrap_demo_data=True)) as client:
         for path, code in (
             ("/api/mitre/events/MISSING", "event_not_found"),
             ("/api/mitre/attack-runs/MISSING", "simulation_not_found"),

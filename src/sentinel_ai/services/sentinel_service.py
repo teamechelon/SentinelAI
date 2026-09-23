@@ -39,16 +39,42 @@ class SentinelService:
     def model_status(self) -> str:
         return self.detector.status
 
-    def initialize(self, reseed: bool = False) -> None:
+    def initialize(self, reseed: bool = False, bootstrap_demo_data: bool = False) -> bool:
+        """Initialize storage and the model, optionally bootstrapping an empty demo DB.
+
+        ``reseed`` is an explicit destructive developer action. Deployment startup
+        should use ``bootstrap_demo_data`` instead: it seeds only when no employees
+        exist and otherwise preserves every persisted record.
+
+        Returns ``True`` only when demo data was inserted during this call.
+        """
+
         self.database.initialize()
-        if reseed or self.database.is_empty():
+        if reseed:
             self.reseed()
-        else:
-            self._train_from_database()
+            return True
+        if bootstrap_demo_data and self.bootstrap_demo_data_if_empty():
+            return True
+        self._train_from_database()
+        return False
 
     def reseed(self) -> None:
+        """Destructively replace all persisted state with the deterministic demo."""
+
+        self._seed_demo_dataset(replace_existing=True)
+
+    def bootstrap_demo_data_if_empty(self) -> bool:
+        """Insert the existing deterministic demo only into an empty database."""
+
+        if not self.database.is_empty():
+            return False
+        self._seed_demo_dataset(replace_existing=False)
+        return True
+
+    def _seed_demo_dataset(self, replace_existing: bool) -> None:
         employees, events = generate_dataset()
-        self.database.clear_all()
+        if replace_existing:
+            self.database.clear_all()
         self.database.insert_employees(employees)
         self.database.insert_events(events)
 

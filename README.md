@@ -23,6 +23,18 @@ Run the complete test suite with:
 
 The database is created at `data/sentinel_ai.db`. It is local runtime state and is ignored by Git.
 
+## Demo deployment database initialization
+
+API deployments do not seed data by default. To initialize the existing deterministic SentinelAI dataset when—and only when—the configured database has no employees, set:
+
+```bash
+SENTINEL_BOOTSTRAP_DEMO_DATA=true
+```
+
+Startup is idempotent: an already-populated database is preserved, including Attack Lab runs and their linked events. The bootstrap calls the same `generate_dataset()` and detection pipeline used by local development; it does not insert MITRE mappings. MITRE stories and graph findings continue to be derived at request time from seeded events, detections, alerts, sequences, and graph relationships.
+
+For Render, mount a persistent disk and set `SENTINEL_DATABASE_PATH` to a file on that mount (for example `/var/data/sentinel_ai.db`). Without a persistent disk, Render filesystem state is ephemeral and the empty database will be recreated and bootstrapped after a replacement instance starts. Keep `SENTINEL_BOOTSTRAP_DEMO_DATA` unset or `false` for non-demo production environments.
+
 ## Repository layout
 
 ```text

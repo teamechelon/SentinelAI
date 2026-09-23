@@ -11,7 +11,7 @@ from sentinel_ai.api import create_app
 @pytest.fixture(scope="module")
 def client(tmp_path_factory) -> TestClient:
     database_path = tmp_path_factory.mktemp("api-read") / "sentinel.db"
-    with TestClient(create_app(database_path)) as test_client:
+    with TestClient(create_app(database_path, bootstrap_demo_data=True)) as test_client:
         yield test_client
 
 

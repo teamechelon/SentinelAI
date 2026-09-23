@@ -8,7 +8,7 @@ def client(tmp_path_factory):
     db_path = tmp_path_factory.mktemp("data") / "test_api.db"
     service = SentinelService(db_path)
     service.initialize(reseed=True)
-    app = create_app(db_path)
+    app = create_app(db_path, bootstrap_demo_data=True)
     # inject the seeded service so the routes can use it
     app.state.service = service
     with TestClient(app) as test_client:

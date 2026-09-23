@@ -8,7 +8,7 @@ from sentinel_ai.api import create_app
 
 
 def test_attack_lab_run_is_persisted_and_traceable(tmp_path) -> None:
-    app = create_app(tmp_path / "attack-lab.db")
+    app = create_app(tmp_path / "attack-lab.db", bootstrap_demo_data=True)
     with TestClient(app) as client:
         employee_id = client.get("/api/users?page_size=1").json()["items"][0]["employeeId"]
         response = client.post("/api/attack-lab/runs", json={
@@ -30,7 +30,7 @@ def test_attack_lab_run_is_persisted_and_traceable(tmp_path) -> None:
 
 
 def test_attack_lab_validates_scenario_and_employee(tmp_path) -> None:
-    app = create_app(tmp_path / "attack-lab-errors.db")
+    app = create_app(tmp_path / "attack-lab-errors.db", bootstrap_demo_data=True)
     payload = {"employeeId": "MISSING", "scenario": "invented", "startTime": "2025-07-01T12:00:00Z"}
     with TestClient(app) as client:
         response = client.post("/api/attack-lab/runs", json=payload)

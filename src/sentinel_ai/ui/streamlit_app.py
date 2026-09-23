@@ -69,7 +69,7 @@ SCENARIO_GUIDE = {
 @st.cache_resource
 def get_service() -> SentinelService:
     service = SentinelService()
-    service.initialize()
+    service.initialize(bootstrap_demo_data=True)
     return service
 
 

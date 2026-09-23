@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections import Counter
 from contextlib import asynccontextmanager
 from datetime import datetime
+import logging
 import os
 from pathlib import Path
 from typing import Annotated, Literal
@@ -65,6 +66,15 @@ from sentinel_ai.models import evaluate_existing_models, evaluate_quantum_kernel
 from sentinel_ai.mitre import ATTACK_SOURCE_URL, ATTACK_VERSION, catalog
 
 
+logger = logging.getLogger(__name__)
+
+
+def _demo_bootstrap_enabled(override: bool | None = None) -> bool:
+    if override is not None:
+        return override
+    return os.environ.get("SENTINEL_BOOTSTRAP_DEMO_DATA", "false").strip().lower() in {"1", "true", "yes", "on"}
+
+
 def _page_meta(page: int, page_size: int, total: int) -> PageMeta:
     return PageMeta(page=page, page_size=page_size, total=total, total_pages=max(1, (total + page_size - 1) // page_size))
 
@@ -76,13 +86,20 @@ def _service(request: Request) -> SentinelService:
 Service = Annotated[SentinelService, Depends(_service)]
 
 
-def create_app(database_path: str | Path | None = None) -> FastAPI:
+def create_app(database_path: str | Path | None = None, bootstrap_demo_data: bool | None = None) -> FastAPI:
     resolved_database_path = Path(database_path or os.environ.get("SENTINEL_DATABASE_PATH", config.DEFAULT_DATABASE_PATH))
+    bootstrap_enabled = _demo_bootstrap_enabled(bootstrap_demo_data)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         service = SentinelService(resolved_database_path)
-        service.initialize()
+        bootstrapped = service.initialize(bootstrap_demo_data=bootstrap_enabled)
+        logger.info(
+            "SentinelAI database ready path=%s demo_bootstrap_enabled=%s demo_data_initialized=%s",
+            resolved_database_path,
+            bootstrap_enabled,
+            bootstrapped,
+        )
         app.state.service = service
         yield
 

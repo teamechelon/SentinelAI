@@ -12,10 +12,9 @@ def main() -> None:
     parser.add_argument("--reseed", action="store_true", help="Replace existing local demo data")
     arguments = parser.parse_args()
     service = SentinelService()
-    service.initialize(reseed=arguments.reseed)
+    service.initialize(reseed=arguments.reseed, bootstrap_demo_data=True)
     print(f"SentinelAI database ready. Model status: {service.model_status}")
 
 
 if __name__ == "__main__":
     main()
-

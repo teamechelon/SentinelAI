@@ -6,7 +6,7 @@ from sentinel_ai.api import create_app
 
 
 def test_model_reports_are_exposed_without_risk_integration(tmp_path) -> None:
-    with TestClient(create_app(tmp_path / "models.db")) as client:
+    with TestClient(create_app(tmp_path / "models.db", bootstrap_demo_data=True)) as client:
         evaluation = client.get("/api/models/evaluation")
         quantum = client.get("/api/models/quantum")
 
