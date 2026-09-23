@@ -4,6 +4,7 @@ import { ThreatQueue } from "@/components/threats/threat-queue";
 import { getSentinelDataSource } from "@/data/data-source";
 import { parseRiskFilter, parseStatusFilter } from "@/data/threat-query";
 import { ThreatStoryPanel } from "@/components/threat-intelligence/threat-story-panel";
+import { ContainmentPanel } from "@/components/threats/containment-panel";
 
 export const metadata: Metadata = { title: "Threat Queue" };
 
@@ -18,7 +19,15 @@ export default async function ThreatsPage({ searchParams }: { searchParams: Sear
   const status = parseStatusFilter(scalar(params.status));
   const focus = scalar(params.focus);
   const source = getSentinelDataSource();
-  const [threats, counts, mitre] = await Promise.all([source.listThreats({ q, risk, status }), source.getCounts(), focus ? source.getMitreAlert(focus) : Promise.resolve(null)]);
+  const [threats, counts, focusedThreat, mitre] = await Promise.all([
+    source.listThreats({ q, risk, status }),
+    source.getCounts(),
+    focus ? source.getThreat(focus) : Promise.resolve(null),
+    focus ? source.getMitreAlert(focus) : Promise.resolve(null),
+  ]);
+  const [containment, responseHistory] = focusedThreat
+    ? await Promise.all([source.getContainmentState(focusedThreat.employeeId), source.getResponseHistory(focusedThreat.employeeId)])
+    : [null, { items: [] }];
   const total = counts.alerts;
 
   return (
@@ -30,6 +39,7 @@ export default async function ThreatsPage({ searchParams }: { searchParams: Sear
 
       <ThreatFilterBar q={q} risk={risk} status={status} />
       {mitre && <ThreatStoryPanel report={mitre} compact />}
+      {focusedThreat && containment && <ContainmentPanel threat={focusedThreat} initialState={containment} initialHistory={responseHistory.items} mitre={mitre} />}
       <ThreatQueue threats={threats} focusedId={focus} />
     </div>
   );

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 
@@ -62,6 +63,13 @@ RISK_BANDS = (
 )
 
 ALERT_STATUSES = ("New", "Investigating", "Resolved", "False Positive")
+
+# Simulated response policy. These settings consume persisted risk; they never
+# participate in or alter risk calculation.
+AUTO_CONTAINMENT_ENABLED = os.environ.get("AUTO_CONTAINMENT_ENABLED", "true").strip().lower() in {
+    "1", "true", "yes", "on",
+}
+AUTO_CONTAINMENT_RISK_THRESHOLD = float(os.environ.get("AUTO_CONTAINMENT_RISK_THRESHOLD", "100"))
 
 # Graph Analysis (supplementary — does not affect production risk)
 ENABLE_GRAPH_RISK_CONTRIBUTION = False

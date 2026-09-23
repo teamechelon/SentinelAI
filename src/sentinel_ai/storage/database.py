@@ -12,6 +12,16 @@ from typing import Any, Iterator
 
 from sentinel_ai import config
 from sentinel_ai.domain import ActivityEvent, Alert, BehaviourProfile, DetectionResult, Employee
+from sentinel_ai.response.models import (
+    AccountStatus,
+    ContainmentMode,
+    ContainmentState,
+    ContainmentStatus,
+    ResponseAction,
+    ResponseAudit,
+    ResponseResult,
+    SessionStatus,
+)
 
 
 SCHEMA = """
@@ -137,6 +147,39 @@ CREATE TABLE IF NOT EXISTS simulation_events (
 );
 
 CREATE INDEX IF NOT EXISTS idx_simulation_events_event ON simulation_events(event_id);
+
+CREATE TABLE IF NOT EXISTS containment_states (
+    employee_id TEXT PRIMARY KEY REFERENCES employees(employee_id),
+    account_status TEXT NOT NULL,
+    session_status TEXT NOT NULL,
+    containment_status TEXT NOT NULL,
+    containment_mode TEXT,
+    contained_at TEXT,
+    contained_by TEXT,
+    reason TEXT,
+    source_alert_id TEXT REFERENCES alerts(alert_id),
+    risk_score_at_action REAL,
+    last_action TEXT,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS response_actions (
+    action_id TEXT PRIMARY KEY,
+    employee_id TEXT NOT NULL REFERENCES employees(employee_id),
+    action TEXT NOT NULL,
+    mode TEXT NOT NULL,
+    actor TEXT NOT NULL,
+    alert_id TEXT REFERENCES alerts(alert_id),
+    risk_score_at_action REAL,
+    reason TEXT NOT NULL,
+    result TEXT NOT NULL,
+    detail TEXT,
+    created_at TEXT NOT NULL,
+    idempotency_key TEXT UNIQUE
+);
+
+CREATE INDEX IF NOT EXISTS idx_response_actions_employee_time
+ON response_actions(employee_id, created_at DESC);
 """
 
 
@@ -162,6 +205,8 @@ class SentinelDatabase:
 
     def clear_all(self) -> None:
         with self.connection() as connection:
+            connection.execute("DELETE FROM response_actions")
+            connection.execute("DELETE FROM containment_states")
             connection.execute("DELETE FROM simulation_events")
             connection.execute("DELETE FROM simulation_runs")
             connection.execute("DELETE FROM investigation_notes")
@@ -418,6 +463,104 @@ class SentinelDatabase:
             ).fetchall()
         return [dict(row) for row in rows]
 
+    def get_containment_state(self, employee_id: str) -> ContainmentState | None:
+        with self.connection() as connection:
+            row = connection.execute(
+                "SELECT * FROM containment_states WHERE employee_id = ?",
+                (employee_id,),
+            ).fetchone()
+        return self._containment_state_from_row(row) if row else None
+
+    def persist_response_transition(
+        self,
+        state: ContainmentState,
+        audit: ResponseAudit,
+        idempotency_key: str | None = None,
+    ) -> bool:
+        """Atomically persist the current state and immutable audit event."""
+
+        with self.connection() as connection:
+            if idempotency_key:
+                existing = connection.execute(
+                    "SELECT 1 FROM response_actions WHERE idempotency_key = ?",
+                    (idempotency_key,),
+                ).fetchone()
+                if existing:
+                    return False
+            connection.execute(
+                """
+                INSERT INTO containment_states VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(employee_id) DO UPDATE SET
+                    account_status=excluded.account_status,
+                    session_status=excluded.session_status,
+                    containment_status=excluded.containment_status,
+                    containment_mode=excluded.containment_mode,
+                    contained_at=excluded.contained_at,
+                    contained_by=excluded.contained_by,
+                    reason=excluded.reason,
+                    source_alert_id=excluded.source_alert_id,
+                    risk_score_at_action=excluded.risk_score_at_action,
+                    last_action=excluded.last_action,
+                    updated_at=excluded.updated_at
+                """,
+                (
+                    state.employee_id,
+                    state.account_status.value,
+                    state.session_status.value,
+                    state.containment_status.value,
+                    state.containment_mode.value if state.containment_mode else None,
+                    state.contained_at.isoformat() if state.contained_at else None,
+                    state.contained_by,
+                    state.reason,
+                    state.source_alert_id,
+                    state.risk_score_at_action,
+                    state.last_action.value if state.last_action else None,
+                    state.updated_at.isoformat() if state.updated_at else audit.created_at.isoformat(),
+                ),
+            )
+            connection.execute(
+                "INSERT INTO response_actions VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    audit.action_id,
+                    audit.employee_id,
+                    audit.action.value,
+                    audit.mode.value,
+                    audit.actor,
+                    audit.alert_id,
+                    audit.risk_score_at_action,
+                    audit.reason,
+                    audit.result.value,
+                    audit.detail,
+                    audit.created_at.isoformat(),
+                    idempotency_key,
+                ),
+            )
+        return True
+
+    def insert_response_audit(self, audit: ResponseAudit, idempotency_key: str | None = None) -> bool:
+        with self.connection() as connection:
+            before = connection.total_changes
+            connection.execute(
+                """
+                INSERT OR IGNORE INTO response_actions
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    audit.action_id, audit.employee_id, audit.action.value, audit.mode.value,
+                    audit.actor, audit.alert_id, audit.risk_score_at_action, audit.reason,
+                    audit.result.value, audit.detail, audit.created_at.isoformat(), idempotency_key,
+                ),
+            )
+            return connection.total_changes > before
+
+    def list_response_history(self, employee_id: str) -> list[ResponseAudit]:
+        with self.connection() as connection:
+            rows = connection.execute(
+                "SELECT * FROM response_actions WHERE employee_id = ? ORDER BY created_at DESC, action_id DESC",
+                (employee_id,),
+            ).fetchall()
+        return [self._response_audit_from_row(row) for row in rows]
+
     def list_employees(self) -> list[Employee]:
         with self.connection() as connection:
             rows = connection.execute("SELECT * FROM employees ORDER BY employee_name").fetchall()
@@ -591,10 +734,42 @@ class SentinelDatabase:
         )
 
     @staticmethod
+    def _containment_state_from_row(row: sqlite3.Row) -> ContainmentState:
+        return ContainmentState(
+            employee_id=str(row["employee_id"]),
+            account_status=AccountStatus(row["account_status"]),
+            session_status=SessionStatus(row["session_status"]),
+            containment_status=ContainmentStatus(row["containment_status"]),
+            containment_mode=ContainmentMode(row["containment_mode"]) if row["containment_mode"] else None,
+            contained_at=datetime.fromisoformat(row["contained_at"]) if row["contained_at"] else None,
+            contained_by=row["contained_by"],
+            reason=row["reason"],
+            source_alert_id=row["source_alert_id"],
+            risk_score_at_action=float(row["risk_score_at_action"]) if row["risk_score_at_action"] is not None else None,
+            last_action=ResponseAction(row["last_action"]) if row["last_action"] else None,
+            updated_at=datetime.fromisoformat(row["updated_at"]) if row["updated_at"] else None,
+        )
+
+    @staticmethod
+    def _response_audit_from_row(row: sqlite3.Row) -> ResponseAudit:
+        return ResponseAudit(
+            action_id=str(row["action_id"]),
+            employee_id=str(row["employee_id"]),
+            action=ResponseAction(row["action"]),
+            mode=ContainmentMode(row["mode"]),
+            actor=str(row["actor"]),
+            alert_id=row["alert_id"],
+            risk_score_at_action=float(row["risk_score_at_action"]) if row["risk_score_at_action"] is not None else None,
+            reason=str(row["reason"]),
+            result=ResponseResult(row["result"]),
+            detail=row["detail"],
+            created_at=datetime.fromisoformat(str(row["created_at"])),
+        )
+
+    @staticmethod
     def _decode_row(row: sqlite3.Row) -> dict[str, Any]:
         result = dict(row)
         for key in ("triggered_rules_json", "feature_values_json"):
             if key in result and result[key] is not None:
                 result[key.removesuffix("_json")] = json.loads(result.pop(key))
         return result
-

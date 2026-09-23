@@ -27,13 +27,30 @@ from sentinel_ai.graph import SecurityGraph, analyze_graph, build_security_graph
 from sentinel_ai.models import IsolationForestDetector
 from sentinel_ai.mitre import ATTACK_SOURCE_URL, ATTACK_VERSION, build_report, catalog
 from sentinel_ai.mitre.models import MitreReport
+from sentinel_ai.response.models import ContainmentState, ResponseAction, ResponseAudit
+from sentinel_ai.response.policy import ResponsePolicy
+from sentinel_ai.response.service import ResponseService
 from sentinel_ai.storage import SentinelDatabase
 
 
 class SentinelService:
-    def __init__(self, database_path: str | Path = config.DEFAULT_DATABASE_PATH) -> None:
+    def __init__(
+        self,
+        database_path: str | Path = config.DEFAULT_DATABASE_PATH,
+        *,
+        auto_containment_enabled: bool | None = None,
+        auto_containment_risk_threshold: float | None = None,
+    ) -> None:
         self.database = SentinelDatabase(database_path)
         self.detector = IsolationForestDetector()
+        self.response = ResponseService(
+            self.database,
+            ResponsePolicy(
+                config.AUTO_CONTAINMENT_ENABLED if auto_containment_enabled is None else auto_containment_enabled,
+                config.AUTO_CONTAINMENT_RISK_THRESHOLD
+                if auto_containment_risk_threshold is None else auto_containment_risk_threshold,
+            ),
+        )
 
     @property
     def model_status(self) -> str:
@@ -56,6 +73,7 @@ class SentinelService:
         if bootstrap_demo_data and self.bootstrap_demo_data_if_empty():
             return True
         self._train_from_database()
+        self.evaluate_response_policy()
         return False
 
     def reseed(self) -> None:
@@ -170,19 +188,19 @@ class SentinelService:
         self.database.insert_detection(result)
         if result.final_risk_score >= config.ALERT_MINIMUM_SCORE:
             title = result.triggered_rules[0].rule_name.replace("_", " ").title() if result.triggered_rules else "Behavioral Anomaly"
-            self.database.create_alert(
-                Alert(
-                    alert_id=f"ALT-{event.event_id}",
-                    detection_id=result.detection_id,
-                    event_id=event.event_id,
-                    employee_id=event.employee_id,
-                    created_at=result.detected_at,
-                    status="New",
-                    title=title,
-                    risk_score=result.final_risk_score,
-                    risk_level=result.risk_level,
-                )
+            alert = Alert(
+                alert_id=f"ALT-{event.event_id}",
+                detection_id=result.detection_id,
+                event_id=event.event_id,
+                employee_id=event.employee_id,
+                created_at=result.detected_at,
+                status="New",
+                title=title,
+                risk_score=result.final_risk_score,
+                risk_level=result.risk_level,
             )
+            self.database.create_alert(alert)
+            self.response.evaluate_alert(alert.alert_id)
 
     def detect_and_persist(self, event: ActivityEvent) -> DetectionResult:
         employee = self.database.get_employee(event.employee_id)
@@ -311,6 +329,31 @@ class SentinelService:
 
     def alert_rows(self) -> list[dict[str, object]]:
         return self.database.list_alert_rows()
+
+    def containment_state(self, employee_id: str) -> ContainmentState:
+        return self.response.state(employee_id)
+
+    def response_history(self, employee_id: str) -> list[ResponseAudit]:
+        return self.response.history(employee_id)
+
+    def perform_response_action(
+        self,
+        employee_id: str,
+        action: ResponseAction,
+        reason: str,
+        actor: str = "Analyst",
+        alert_id: str | None = None,
+    ) -> tuple[ContainmentState, bool]:
+        return self.response.perform_manual_action(employee_id, action, reason, actor, alert_id)
+
+    def evaluate_response_policy(self) -> int:
+        """Evaluate persisted alerts safely, allowing upgrades/restarts to converge."""
+
+        recorded = 0
+        for row in self.alert_rows():
+            _, action_recorded = self.response.evaluate_alert(str(row["alert_id"]))
+            recorded += int(action_recorded)
+        return recorded
 
     def _mitre_inputs_for_events(self, event_ids: list[str]) -> tuple[list[ActivityEvent], list[dict[str, object]]]:
         selected = set(event_ids)

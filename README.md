@@ -35,6 +35,17 @@ Startup is idempotent: an already-populated database is preserved, including Att
 
 For Render, mount a persistent disk and set `SENTINEL_DATABASE_PATH` to a file on that mount (for example `/var/data/sentinel_ai.db`). Without a persistent disk, Render filesystem state is ephemeral and the empty database will be recreated and bootstrapped after a replacement instance starts. Keep `SENTINEL_BOOTSTRAP_DEMO_DATA` unset or `false` for non-demo production environments.
 
+## Simulated containment
+
+The response policy consumes the already-persisted production risk score. By default, a score at the configured maximum triggers an internal block and session revocation:
+
+```bash
+AUTO_CONTAINMENT_ENABLED=true
+AUTO_CONTAINMENT_RISK_THRESHOLD=100
+```
+
+Current containment uses `SimulationContainmentAdapter`. It changes only SentinelAI's persisted demonstration state and append-only response audit history; it does not disable an enterprise account, revoke real identity-provider tokens, isolate endpoints, or call an external service. The adapter interface is the future integration boundary for an authenticated and authorized enterprise IAM provider.
+
 ## Repository layout
 
 ```text

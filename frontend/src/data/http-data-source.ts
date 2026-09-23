@@ -1,5 +1,5 @@
 import "server-only";
-import type { ActivityFilters, ActivityRecord, AttackLabRun, AttackLabScenario, CreateAttackLabRun, ModelEvaluationReport, ModelMetadata, OperationsOverview, PageResult, QuantumEvaluationReport, SystemCounts, SystemStatusSnapshot, ThreatFilters, ThreatSummary, UserDetail, UserFilters, UserSummary, GraphOverview, GraphEntityDetail, GraphEventContext, GraphAttackRunContext, GraphFinding, GraphData, GraphFilters, MitreCatalog, MitreOverview, MitreReport } from "@/domain/sentinel";
+import type { ActivityFilters, ActivityRecord, AttackLabRun, AttackLabScenario, CreateAttackLabRun, ModelEvaluationReport, ModelMetadata, OperationsOverview, PageResult, QuantumEvaluationReport, SystemCounts, SystemStatusSnapshot, ThreatFilters, ThreatSummary, UserDetail, UserFilters, UserSummary, GraphOverview, GraphEntityDetail, GraphEventContext, GraphAttackRunContext, GraphFinding, GraphData, GraphFilters, MitreCatalog, MitreOverview, MitreReport, ContainmentState, ResponseHistory } from "@/domain/sentinel";
 
 import type { SentinelDataSource } from "@/data/sentinel-data-source";
 
@@ -53,6 +53,14 @@ export class HttpDataSource implements SentinelDataSource {
   async listThreats(filters: ThreatFilters = {}) {
     const result = await this.get<PageResult<ThreatSummary>>(`/api/threats${queryString({ q: filters.q, risk: filters.risk, status: filters.status, page_size: 250 })}`);
     return result.items;
+  }
+  async getThreat(alertId: string) {
+    try {
+      return await this.get<ThreatSummary>(`/api/threats/${encodeURIComponent(alertId)}`);
+    } catch (error) {
+      if (error instanceof SentinelApiError && error.status === 404) return null;
+      throw error;
+    }
   }
   listActivity(filters: ActivityFilters = {}) {
     return this.get<PageResult<ActivityRecord>>(`/api/activity${queryString({
@@ -144,4 +152,15 @@ export class HttpDataSource implements SentinelDataSource {
   getMitreEvent(eventId: string) { return this.getMitreReport(`/api/mitre/events/${encodeURIComponent(eventId)}`); }
   getMitreAttackRun(simulationId: string) { return this.getMitreReport(`/api/mitre/attack-runs/${encodeURIComponent(simulationId)}`); }
   getMitreAlert(alertId: string) { return this.getMitreReport(`/api/mitre/alerts/${encodeURIComponent(alertId)}`); }
+  async getContainmentState(employeeId: string) {
+    try {
+      return await this.get<ContainmentState>(`/api/response/users/${encodeURIComponent(employeeId)}`);
+    } catch (error) {
+      if (error instanceof SentinelApiError && error.status === 404) return null;
+      throw error;
+    }
+  }
+  getResponseHistory(employeeId: string) {
+    return this.get<ResponseHistory>(`/api/response/users/${encodeURIComponent(employeeId)}/history`);
+  }
 }

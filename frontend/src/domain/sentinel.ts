@@ -27,6 +27,45 @@ export interface ThreatSummary {
   title: string;
 }
 
+export type AccountStatus = "ACTIVE" | "BLOCKED";
+export type SessionStatus = "ACTIVE" | "REVOKED";
+export type ContainmentStatus = "NONE" | "PARTIAL" | "CONTAINED";
+export type ContainmentMode = "AUTO" | "MANUAL";
+export type ResponseAction = "BLOCK_USER" | "UNBLOCK_USER" | "REVOKE_SESSIONS" | "RESTORE_SESSIONS" | "BLOCK_AND_REVOKE";
+
+export interface ContainmentState {
+  employeeId: string;
+  accountStatus: AccountStatus;
+  sessionStatus: SessionStatus;
+  containmentStatus: ContainmentStatus;
+  containmentMode: ContainmentMode | null;
+  containedAt: string | null;
+  containedBy: string | null;
+  reason: string | null;
+  sourceAlertId: string | null;
+  riskScoreAtAction: number | null;
+  lastAction: ResponseAction | null;
+  updatedAt: string | null;
+  adapter: "SentinelAI Simulation";
+  simulated: true;
+}
+
+export interface ResponseAudit {
+  actionId: string;
+  employeeId: string;
+  action: ResponseAction;
+  mode: ContainmentMode;
+  actor: string;
+  alertId: string | null;
+  riskScoreAtAction: number | null;
+  reason: string;
+  result: "SUCCESS" | "FAILED";
+  detail: string | null;
+  createdAt: string;
+}
+
+export interface ResponseHistory { items: ResponseAudit[] }
+
 export interface RiskPoint { date: string; alertCount: number; averageRisk: number }
 export interface AnomalyPoint { date: string; medianPercentile: number; p95Percentile: number }
 export interface ThreatTrendPoint { date: string; medium: number; high: number; critical: number }

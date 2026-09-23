@@ -43,6 +43,11 @@ from sentinel_ai.api.schemas import (
     MitreOverviewDto,
     MitreReportDto,
     MitreTechniqueDto,
+    ContainmentStateDto,
+    ResponseActionRequest,
+    ResponseActionResultDto,
+    ResponseAuditDto,
+    ResponseHistoryDto,
 )
 
 from sentinel_ai.api.serializers import (
@@ -64,6 +69,8 @@ from sentinel_ai.demo import ATTACK_LAB_SCENARIOS
 from sentinel_ai.services import SentinelService
 from sentinel_ai.models import evaluate_existing_models, evaluate_quantum_kernel
 from sentinel_ai.mitre import ATTACK_SOURCE_URL, ATTACK_VERSION, catalog
+from sentinel_ai.response.models import ContainmentState, ResponseAction, ResponseAudit
+from sentinel_ai.response.service import ResponseActionFailed
 
 
 logger = logging.getLogger(__name__)
@@ -77,6 +84,39 @@ def _demo_bootstrap_enabled(override: bool | None = None) -> bool:
 
 def _page_meta(page: int, page_size: int, total: int) -> PageMeta:
     return PageMeta(page=page, page_size=page_size, total=total, total_pages=max(1, (total + page_size - 1) // page_size))
+
+
+def _containment_state(item: ContainmentState) -> ContainmentStateDto:
+    return ContainmentStateDto(
+        employee_id=item.employee_id,
+        account_status=item.account_status.value,
+        session_status=item.session_status.value,
+        containment_status=item.containment_status.value,
+        containment_mode=item.containment_mode.value if item.containment_mode else None,
+        contained_at=item.contained_at,
+        contained_by=item.contained_by,
+        reason=item.reason,
+        source_alert_id=item.source_alert_id,
+        risk_score_at_action=item.risk_score_at_action,
+        last_action=item.last_action.value if item.last_action else None,
+        updated_at=item.updated_at,
+    )
+
+
+def _response_audit(item: ResponseAudit) -> ResponseAuditDto:
+    return ResponseAuditDto(
+        action_id=item.action_id,
+        employee_id=item.employee_id,
+        action=item.action.value,
+        mode=item.mode.value,
+        actor=item.actor,
+        alert_id=item.alert_id,
+        risk_score_at_action=item.risk_score_at_action,
+        reason=item.reason,
+        result=item.result.value,
+        detail=item.detail,
+        created_at=item.created_at,
+    )
 
 
 def _service(request: Request) -> SentinelService:
@@ -232,6 +272,64 @@ def create_app(database_path: str | Path | None = None, bootstrap_demo_data: boo
         if row is None:
             raise HTTPException(404, {"code": "alert_not_found", "message": f"Unknown alert: {alert_id}"})
         return threat(row)
+
+    @app.get("/api/response/users/{employee_id}", response_model=ContainmentStateDto)
+    def response_state(employee_id: str, service: Service) -> ContainmentStateDto:
+        try:
+            return _containment_state(service.containment_state(employee_id))
+        except KeyError as error:
+            raise HTTPException(404, {"code": "employee_not_found", "message": str(error.args[0])}) from error
+
+    @app.get("/api/response/users/{employee_id}/history", response_model=ResponseHistoryDto)
+    def response_history(employee_id: str, service: Service) -> ResponseHistoryDto:
+        try:
+            return ResponseHistoryDto(items=[_response_audit(item) for item in service.response_history(employee_id)])
+        except KeyError as error:
+            raise HTTPException(404, {"code": "employee_not_found", "message": str(error.args[0])}) from error
+
+    def perform_response_action(
+        employee_id: str,
+        action: ResponseAction,
+        payload: ResponseActionRequest,
+        service: SentinelService,
+    ) -> ResponseActionResultDto:
+        try:
+            state, recorded = service.perform_response_action(
+                employee_id,
+                action,
+                payload.reason,
+                payload.actor,
+                payload.alert_id,
+            )
+            return ResponseActionResultDto(state=_containment_state(state), action_recorded=recorded)
+        except KeyError as error:
+            message = str(error.args[0])
+            code = "alert_not_found" if "alert" in message.lower() else "employee_not_found"
+            raise HTTPException(404, {"code": code, "message": message}) from error
+        except ValueError as error:
+            raise HTTPException(422, {"code": "invalid_response_action", "message": str(error)}) from error
+        except ResponseActionFailed as error:
+            raise HTTPException(503, {"code": "containment_failed", "message": str(error)}) from error
+
+    @app.post("/api/response/users/{employee_id}/block", response_model=ResponseActionResultDto)
+    def block_user(employee_id: str, payload: ResponseActionRequest, service: Service) -> ResponseActionResultDto:
+        return perform_response_action(employee_id, ResponseAction.BLOCK_USER, payload, service)
+
+    @app.post("/api/response/users/{employee_id}/unblock", response_model=ResponseActionResultDto)
+    def unblock_user(employee_id: str, payload: ResponseActionRequest, service: Service) -> ResponseActionResultDto:
+        return perform_response_action(employee_id, ResponseAction.UNBLOCK_USER, payload, service)
+
+    @app.post("/api/response/users/{employee_id}/revoke-sessions", response_model=ResponseActionResultDto)
+    def revoke_sessions(employee_id: str, payload: ResponseActionRequest, service: Service) -> ResponseActionResultDto:
+        return perform_response_action(employee_id, ResponseAction.REVOKE_SESSIONS, payload, service)
+
+    @app.post("/api/response/users/{employee_id}/restore-sessions", response_model=ResponseActionResultDto)
+    def restore_sessions(employee_id: str, payload: ResponseActionRequest, service: Service) -> ResponseActionResultDto:
+        return perform_response_action(employee_id, ResponseAction.RESTORE_SESSIONS, payload, service)
+
+    @app.post("/api/response/users/{employee_id}/contain", response_model=ResponseActionResultDto)
+    def contain_user(employee_id: str, payload: ResponseActionRequest, service: Service) -> ResponseActionResultDto:
+        return perform_response_action(employee_id, ResponseAction.BLOCK_AND_REVOKE, payload, service)
 
     @app.get("/api/users", response_model=UserPageDto)
     def list_users(

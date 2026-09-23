@@ -26,6 +26,8 @@ import type {
   MitreCatalog,
   MitreOverview,
   MitreReport,
+  ContainmentState,
+  ResponseHistory,
 } from "@/domain/sentinel";
 
 export interface SentinelDataSource {
@@ -34,6 +36,7 @@ export interface SentinelDataSource {
   getCounts(): Promise<SystemCounts>;
   getOverview(): Promise<OperationsOverview>;
   listThreats(filters?: ThreatFilters): Promise<ThreatSummary[]>;
+  getThreat(alertId: string): Promise<ThreatSummary | null>;
   listActivity(filters?: ActivityFilters): Promise<PageResult<ActivityRecord>>;
   listUsers(filters?: UserFilters): Promise<PageResult<UserSummary>>;
   getUser(employeeId: string): Promise<UserDetail | null>;
@@ -54,4 +57,6 @@ export interface SentinelDataSource {
   getMitreEvent(eventId: string): Promise<MitreReport | null>;
   getMitreAttackRun(simulationId: string): Promise<MitreReport | null>;
   getMitreAlert(alertId: string): Promise<MitreReport | null>;
+  getContainmentState(employeeId: string): Promise<ContainmentState | null>;
+  getResponseHistory(employeeId: string): Promise<ResponseHistory>;
 }

@@ -472,3 +472,49 @@ class MitreOverviewDto(ApiModel):
     technique_counts: dict[str, int]
     recent_reports: list[MitreReportDto]
     affects_production_risk: bool
+
+
+class ResponseActionRequest(ApiModel):
+    alert_id: str | None = None
+    reason: str = Field(min_length=1, max_length=240)
+    actor: str = Field(default="Analyst", min_length=1, max_length=80)
+
+
+class ContainmentStateDto(ApiModel):
+    employee_id: str
+    account_status: str
+    session_status: str
+    containment_status: str
+    containment_mode: str | None
+    contained_at: datetime | None
+    contained_by: str | None
+    reason: str | None
+    source_alert_id: str | None
+    risk_score_at_action: float | None
+    last_action: str | None
+    updated_at: datetime | None
+    adapter: str = "SentinelAI Simulation"
+    simulated: bool = True
+
+
+class ResponseAuditDto(ApiModel):
+    action_id: str
+    employee_id: str
+    action: str
+    mode: str
+    actor: str
+    alert_id: str | None
+    risk_score_at_action: float | None
+    reason: str
+    result: str
+    detail: str | None
+    created_at: datetime
+
+
+class ResponseHistoryDto(ApiModel):
+    items: list[ResponseAuditDto]
+
+
+class ResponseActionResultDto(ApiModel):
+    state: ContainmentStateDto
+    action_recorded: bool

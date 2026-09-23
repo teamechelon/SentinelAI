@@ -1,6 +1,6 @@
 import "server-only";
 import fixture from "@/data/fixtures/sentinel-demo.v1.json";
-import type { ActivityFilters, ActivityRecord, AlertStatus, RiskLevel, SentinelFixture, ThreatFilters, UserFilters, UserSummary, GraphOverview, GraphNode, GraphEdge, GraphEntityDetail, GraphEventContext, GraphAttackRunContext, GraphFinding, GraphData, PageResult, MitreCatalog, MitreOverview } from "@/domain/sentinel";
+import type { ActivityFilters, ActivityRecord, AlertStatus, RiskLevel, SentinelFixture, ThreatFilters, UserFilters, UserSummary, GraphOverview, GraphNode, GraphEdge, GraphEntityDetail, GraphEventContext, GraphAttackRunContext, GraphFinding, GraphData, PageResult, MitreCatalog, MitreOverview, ContainmentState, ResponseHistory } from "@/domain/sentinel";
 
 import { SentinelApiError } from "@/data/http-data-source";
 import type { SentinelDataSource } from "@/data/sentinel-data-source";
@@ -40,6 +40,7 @@ export const fixtureDataSource: SentinelDataSource = {
       return matchesQuery && matchesRisk && matchesStatus;
     });
   },
+  getThreat: async (alertId: string) => data.threats.find((item) => item.alertId === alertId) ?? null,
   listActivity: async (filters: ActivityFilters = {}) => {
     const query = filters.q?.trim().toLowerCase();
     const items: ActivityRecord[] = data.activity.map((item) => ({
@@ -241,4 +242,24 @@ export const fixtureDataSource: SentinelDataSource = {
   getMitreEvent: async () => null,
   getMitreAttackRun: async () => null,
   getMitreAlert: async () => null,
+  getContainmentState: async (employeeId: string): Promise<ContainmentState | null> => {
+    if (!data.employees.some((item) => item.employeeId === employeeId)) return null;
+    return {
+      employeeId,
+      accountStatus: "ACTIVE",
+      sessionStatus: "ACTIVE",
+      containmentStatus: "NONE",
+      containmentMode: null,
+      containedAt: null,
+      containedBy: null,
+      reason: null,
+      sourceAlertId: null,
+      riskScoreAtAction: null,
+      lastAction: null,
+      updatedAt: null,
+      adapter: "SentinelAI Simulation",
+      simulated: true,
+    };
+  },
+  getResponseHistory: async (): Promise<ResponseHistory> => ({ items: [] }),
 };
